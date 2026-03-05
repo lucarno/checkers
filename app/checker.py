@@ -3,44 +3,99 @@ from .models import JournalRules, ManuscriptMetadata, CheckItem, CheckResult, Ch
 
 
 def _detect_citation_style(text: str) -> str | None:
-    """Heuristic detection of citation style from manuscript text."""
+    """Heuristic detection of citation style from manuscript text.
+
+    Distinguishes between:
+    - Numbered / Vancouver: [1] or superscript numbered references
+    - APA: (Author, 2020) with comma before year; refs as Author, A. B. (2020). Title.
+    - Chicago author-date: (Author 2020) no comma; refs as Author, First. 2020. Title.
+    - Harvard: (Author 2020) or (Author 2020: 45) with colon for pages;
+               refs without parens around year: Author, F. 2020. Title.
+    """
     # Extract references section
     text_lower = text.lower()
-    ref_start = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
+    ref_start = max(text_lower.rfind("references"), text_lower.rfind("bibliography"),
+                    text_lower.rfind("literature cited"))
     ref_section = text[ref_start:] if ref_start > 0 else ""
 
-    # In-text citation patterns
+    # ── In-text citation patterns ──
+
     # Numbered: [1], [2,3], [1-3]
     numbered_cites = len(re.findall(r"\[[\d,\s\-–]+\]", text))
-    # Author-year: (Author, 2020) or (Author 2020)
-    author_year_cites = len(re.findall(r"\([A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?,?\s*\d{4}", text))
 
-    # Reference list patterns
-    if ref_section:
-        # APA: Author, A. B. (2020). Title.
-        apa_refs = len(re.findall(r"\(\d{4}[a-z]?\)\.\s", ref_section))
-        # Vancouver/Numbered: 1. Author... or [1] Author...
-        vancouver_refs = len(re.findall(r"(?:^\s*\d+[\.\)]\s|\[\d+\]\s)", ref_section, re.MULTILINE))
-        # Chicago author-date is similar to APA in list format
-        # Harvard is also author-year with slight differences
-    else:
-        apa_refs = 0
-        vancouver_refs = 0
+    # Author-year with comma before year — APA style: (Author, 2020) or (Author & Author, 2020)
+    apa_inline = len(re.findall(
+        r"\([A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?(?:\s+et\s+al\.)?,\s*\d{4}", text))
 
-    # Decision logic
-    if numbered_cites > 5 and numbered_cites > author_year_cites * 2:
+    # Author-year without comma — Chicago/Harvard: (Author 2020)
+    no_comma_inline = len(re.findall(
+        r"\([A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?(?:\s+et\s+al\.)?\s+\d{4}", text))
+
+    # Harvard-style page refs with colon: (Author 2020: 45) or (Author 2020, 45)
+    harvard_page_cites = len(re.findall(
+        r"\([A-Z][a-z]+\s+\d{4}:\s*\d+", text))
+
+    # Chicago-style page refs with comma: (Author 2020, 45) — note no colon
+    chicago_page_cites = len(re.findall(
+        r"\([A-Z][a-z]+\s+\d{4},\s*\d+\)", text))
+
+    # Semicolon-separated multiple cites (common in all author-date styles)
+    total_author_year = apa_inline + no_comma_inline
+
+    # ── Reference list patterns ──
+
+    # APA: Author, A. B. (2020). Title of work.
+    # Key: year in parentheses followed by period
+    apa_refs = len(re.findall(r"\(\d{4}[a-z]?\)\.\s", ref_section)) if ref_section else 0
+
+    # Chicago author-date list: Author, First. 2020. "Title" or Author, First. 2020. Title.
+    # Key: year followed by period (no parens around year), often with quoted article titles
+    chicago_refs = len(re.findall(
+        r"[A-Z][a-z]+,\s+[A-Z][a-z]+(?:\s+[A-Z]\.?)?\.\s+\d{4}[a-z]?\.\s", ref_section)) if ref_section else 0
+
+    # Harvard list: Author, F. 2020. or Author, F. (2020) — varies, but often no parens
+    # Harvard often uses initials: Author, F.M. 2020.
+    harvard_refs = len(re.findall(
+        r"[A-Z][a-z]+,?\s+[A-Z]\.?\s*[A-Z]?\.?\s+\(\d{4}\)", ref_section)) if ref_section else 0
+
+    # Vancouver/Numbered: 1. Author... or [1] Author... or numbered list
+    vancouver_refs = len(re.findall(
+        r"(?:^\s*\d+[\.\)]\s|\[\d+\]\s)", ref_section, re.MULTILINE)) if ref_section else 0
+
+    # ── Decision logic ──
+
+    # Numbered styles (Vancouver or generic numbered)
+    if numbered_cites > 5 and numbered_cites > total_author_year * 2:
         if vancouver_refs > 3:
             return "Vancouver"
         return "Numbered"
 
-    if author_year_cites > 3:
-        if apa_refs > 3:
-            return "APA"
-        # Could be Harvard or Chicago — hard to distinguish without deeper analysis
-        # Check for "et al." usage and format
-        if re.search(r"\(\w+\s+et\s+al\.\s*,?\s*\d{4}\)", text):
-            return "APA"
-        return "Harvard"
+    # Clearly APA: comma before year in-text + year in parens in refs
+    if apa_inline > 3 and apa_inline > no_comma_inline:
+        return "APA"
+
+    # Author-year without comma: Chicago or Harvard
+    if total_author_year > 3 or no_comma_inline > 3:
+        # Harvard page citations use colon (Author 2020: 45)
+        if harvard_page_cites > chicago_page_cites and harvard_page_cites >= 2:
+            return "Harvard"
+
+        # Check reference list format to distinguish
+        if ref_section:
+            # APA refs have year in parens: (2020).
+            if apa_refs > chicago_refs and apa_refs > 3:
+                return "APA"
+            # Chicago refs have year without parens: 2020.
+            if chicago_refs > apa_refs and chicago_refs > 2:
+                return "Chicago"
+            # Harvard refs can look like either — use inline cues
+            if harvard_page_cites >= 2:
+                return "Harvard"
+
+        # Fallback: no comma = likely Chicago (most common in econ/polisci)
+        if no_comma_inline > apa_inline:
+            return "Chicago"
+        return "APA"
 
     # Check for footnote-based citations (Chicago notes-bibliography)
     footnote_cites = len(re.findall(r"(?:Ibid|ibid|Op\.\s*cit)", text))
@@ -247,20 +302,22 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
                 checks.append(CheckItem(
                     name="Citation Style",
                     status=CheckStatus.PASS,
-                    message=f"Citation style appears to be {detected_style}, matching required {required}.",
+                    message=f"Citation style detected as {detected_style}, matching required {required}.",
                 ))
             else:
                 checks.append(CheckItem(
                     name="Citation Style",
                     status=CheckStatus.WARNING,
-                    message=f"Citation style appears to be {detected_style}, but journal requires {required}.",
-                    details="Citation style detection is heuristic-based. Please verify manually.",
+                    message=f"Citation style detected as {detected_style}, but journal requires {required}.",
+                    details=f"Detected {detected_style}-style patterns in citations and reference list. "
+                            f"If the journal uses a variant of {required} (e.g., APSA or AEA style based on {required}), "
+                            f"this may still be correct — verify against the journal's style guide.",
                 ))
         else:
             checks.append(CheckItem(
                 name="Citation Style",
                 status=CheckStatus.SKIPPED,
-                message=f"Could not detect citation style. Required: {required}.",
+                message=f"Could not detect citation style from manuscript text. Required: {required}.",
             ))
 
     # References check
