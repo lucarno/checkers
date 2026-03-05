@@ -327,6 +327,75 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
         message="References section found." if metadata.has_references else "No references/bibliography section detected.",
     ))
 
+    # Structural checks derived from additional_notes
+    if rules.additional_notes and metadata.raw_text:
+        text_lower = metadata.raw_text.lower()
+        notes_text = " ".join(rules.additional_notes).lower()
+
+        # Acknowledgment placement check
+        if "acknowledgment" in notes_text or "acknowledgement" in notes_text:
+            ack_after_refs = "acknowledgment" in notes_text and "after reference" in notes_text
+            ack_not_footnote = "not as a numbered note" in notes_text or "not as a footnote" in notes_text
+            if ack_after_refs or ack_not_footnote:
+                # Find positions of acknowledgments and references in manuscript
+                ack_pos = max(text_lower.rfind("acknowledgments"), text_lower.rfind("acknowledgements"),
+                              text_lower.rfind("acknowledgment"), text_lower.rfind("acknowledgement"))
+                ref_pos = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
+                has_ack = ack_pos > 0
+                if has_ack and ref_pos > 0:
+                    if ack_pos > ref_pos:
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.PASS,
+                            message="Acknowledgments section appears after references.",
+                        ))
+                    else:
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.WARNING,
+                            message="Acknowledgments appear before references. This journal requires acknowledgments after the reference list, not as a numbered note.",
+                        ))
+                elif not has_ack:
+                    checks.append(CheckItem(
+                        name="Acknowledgment Placement",
+                        status=CheckStatus.WARNING,
+                        message="No acknowledgments section detected. This journal expects acknowledgments at the end of the manuscript after the reference list.",
+                    ))
+
+        # Footnotes vs endnotes check
+        if "endnotes" in notes_text or "footnotes" in notes_text:
+            uses_footnotes_rule = "use footnotes, not endnotes" in notes_text or "footnotes at bottom" in notes_text
+            uses_endnotes_rule = "uses endnotes, not footnotes" in notes_text or "endnotes, not footnotes" in notes_text
+            if uses_endnotes_rule:
+                # Check if manuscript has footnote markers (hard to distinguish in extracted text,
+                # but we can check for "Notes" section before references)
+                notes_heading = re.search(r"(?:^|\n)\s*(?:end\s*)?notes\s*\n", text_lower)
+                if not notes_heading:
+                    checks.append(CheckItem(
+                        name="Notes Format",
+                        status=CheckStatus.WARNING,
+                        message="This journal requires endnotes (not footnotes). Verify that notes are placed as endnotes before the references.",
+                    ))
+
+        # Word count on title/front page
+        if "word count" in notes_text and ("title page" in notes_text or "front page" in notes_text or "first page" in notes_text):
+            # Check first ~500 chars for word count
+            first_page_text = metadata.raw_text[:1500].lower()
+            has_word_count = bool(re.search(r"word\s*count\s*[:=]?\s*[\d,]+", first_page_text)) or \
+                             bool(re.search(r"[\d,]+\s*words?\b", first_page_text))
+            if has_word_count:
+                checks.append(CheckItem(
+                    name="Word Count on Title Page",
+                    status=CheckStatus.PASS,
+                    message="Word count found on title/front page.",
+                ))
+            else:
+                checks.append(CheckItem(
+                    name="Word Count on Title Page",
+                    status=CheckStatus.WARNING,
+                    message="Word count not found on the title page. This journal requires the word count to appear on the front page.",
+                ))
+
     # Compute summary
     passed = sum(1 for c in checks if c.status == CheckStatus.PASS)
     failed = sum(1 for c in checks if c.status == CheckStatus.FAIL)
