@@ -9,7 +9,7 @@ EXTRACTION_PROMPT = """You are an expert at reading academic journal submission 
 Given the following text scraped from a journal's submission guidelines page, extract the rules into a structured JSON object.
 
 Return ONLY valid JSON matching this schema (use null for fields you cannot determine):
-{
+{{
   "journal_name": "string or null",
   "word_limit": "integer or null",
   "page_limit": "integer or null",
@@ -20,16 +20,16 @@ Return ONLY valid JSON matching this schema (use null for fields you cannot dete
   "required_sections": ["list of required section names"],
   "abstract_word_limit": "integer or null",
   "citation_style": "one of: APA, Chicago, MLA, Harvard, Vancouver, Numbered, Other, Unknown",
-  "figure_requirements": {
+  "figure_requirements": {{
     "formats": ["list of accepted formats"],
     "min_resolution_dpi": "integer or null",
     "max_file_size_mb": "number or null",
     "placement": "string or null"
-  },
+  }},
   "reference_format": "string or null (brief description)",
   "anonymization_required": "boolean or null",
   "additional_notes": ["list of other notable requirements"]
-}
+}}
 
 Guidelines text:
 ---
