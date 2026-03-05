@@ -80,14 +80,60 @@ def parse_docx(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     has_abstract = "abstract" in text_lower
     abstract_word_count = None
     if has_abstract:
-        abs_start = text_lower.find("abstract")
-        abs_text_after = full_text[abs_start + len("abstract"):]
-        abs_end = len(abs_text_after)
-        for section in ["introduction", "keywords", "jel", "1."]:
-            idx = abs_text_after.lower().find(section)
-            if 0 < idx < abs_end:
-                abs_end = idx
-        abstract_word_count = len(abs_text_after[:abs_end].split())
+        # Try paragraph-aware extraction first (docx has structure)
+        abstract_paras = []
+        in_abstract = False
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            text_l = text.lower()
+            if not in_abstract:
+                if text_l in ("abstract", "abstract:") or text_l.startswith("abstract:") or text_l.startswith("abstract\n"):
+                    in_abstract = True
+                    # If the abstract heading has text after it on the same line
+                    remainder = text[len("abstract"):].strip().lstrip(":").strip()
+                    if remainder:
+                        abstract_paras.append(remainder)
+                continue
+            # Stop at the next heading or known section
+            is_heading = para.style and para.style.name and para.style.name.startswith("Heading")
+            if is_heading or any(text_l.startswith(m) for m in [
+                "introduction", "keywords", "key words", "jel",
+                "1.", "1 ", "literature review", "background",
+                "methods", "methodology", "data", "motivation",
+            ]):
+                break
+            if text:
+                abstract_paras.append(text)
+
+        if abstract_paras:
+            abstract_word_count = len(" ".join(abstract_paras).split())
+        else:
+            # Fallback: text-based extraction
+            abs_start = text_lower.find("abstract")
+            abs_text_after = full_text[abs_start + len("abstract"):]
+            abs_end = len(abs_text_after)
+            end_markers = [
+                "introduction", "keywords", "key words", "jel",
+                "1.", "1 ", "i.", "i ",
+                "literature review", "background", "motivation",
+                "methods", "methodology", "data",
+            ]
+            for marker in end_markers:
+                idx = abs_text_after.lower().find(marker)
+                if 0 < idx < abs_end:
+                    abs_end = idx
+            abstract_text = abs_text_after[:abs_end].strip()
+            words = abstract_text.split()
+            if len(words) > 500:
+                for chunk in abstract_text.split("\n\n"):
+                    first_para = chunk.strip()
+                    if first_para and len(first_para.split()) > 20:
+                        abstract_word_count = len(first_para.split())
+                        break
+                else:
+                    abstract_word_count = len(words)
+            else:
+                abstract_word_count = len(words)
 
     has_references = any(s in text_lower for s in ["references", "bibliography"])
     figure_count = text_lower.count("figure ") + text_lower.count("fig.")

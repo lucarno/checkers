@@ -66,16 +66,34 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     abstract_word_count = None
     if has_abstract:
         abs_start = text_lower.find("abstract")
-        # Find end of abstract (next section or ~500 words)
         abs_text_after = full_text[abs_start + len("abstract"):]
-        # Try to find next section heading
+        # Find end of abstract by looking for the next section heading
         abs_end = len(abs_text_after)
-        for section in ["introduction", "keywords", "jel", "1."]:
-            idx = abs_text_after.lower().find(section)
-            if idx > 0 and idx < abs_end:
+        end_markers = [
+            "introduction", "keywords", "key words", "jel",
+            "1.", "1 ", "i.", "i ",
+            "literature review", "background", "motivation",
+            "methods", "methodology", "data",
+            "table of contents",
+        ]
+        for marker in end_markers:
+            idx = abs_text_after.lower().find(marker)
+            if 0 < idx < abs_end:
                 abs_end = idx
+        # Safety cap: abstracts are rarely over 500 words
         abstract_text = abs_text_after[:abs_end].strip()
-        abstract_word_count = len(abstract_text.split())
+        words = abstract_text.split()
+        if len(words) > 500:
+            # Likely failed to find the end; try splitting on double newline
+            for i, chunk in enumerate(abstract_text.split("\n\n")):
+                first_para = chunk.strip()
+                if first_para and len(first_para.split()) > 20:
+                    abstract_word_count = len(first_para.split())
+                    break
+            else:
+                abstract_word_count = len(words)
+        else:
+            abstract_word_count = len(words)
 
     # References
     has_references = any(s in text_lower for s in ["references", "bibliography"])
