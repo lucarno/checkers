@@ -93,6 +93,23 @@ async def api_check(file: UploadFile = File(...), rules: str = Form(...)):
     return result.model_dump()
 
 
+@app.post("/api/debug-parse")
+async def api_debug_parse(file: UploadFile = File(...)):
+    """Debug endpoint: return parsed metadata for a manuscript."""
+    file_bytes = await file.read()
+    filename = file.filename or "unknown"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext == "pdf":
+        metadata = parse_pdf(file_bytes, filename)
+    elif ext == "docx":
+        metadata = parse_docx(file_bytes, filename)
+    elif ext == "tex":
+        metadata = parse_latex(file_bytes, filename)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported: .{ext}")
+    return metadata.model_dump()
+
+
 @app.get("/")
 async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
