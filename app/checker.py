@@ -337,13 +337,26 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
             ack_after_refs = "acknowledgment" in notes_text and "after reference" in notes_text
             ack_not_footnote = "not as a numbered note" in notes_text or "not as a footnote" in notes_text
             if ack_after_refs or ack_not_footnote:
-                # Find positions of acknowledgments and references in manuscript
-                ack_pos = max(text_lower.rfind("acknowledgments"), text_lower.rfind("acknowledgements"),
-                              text_lower.rfind("acknowledgment"), text_lower.rfind("acknowledgement"))
+                # Find positions of acknowledgments heading and references in manuscript
+                ack_heading_pos = max(text_lower.rfind("acknowledgments"), text_lower.rfind("acknowledgements"),
+                                      text_lower.rfind("acknowledgment"), text_lower.rfind("acknowledgement"))
                 ref_pos = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
-                has_ack = ack_pos > 0
-                if has_ack and ref_pos > 0:
-                    if ack_pos > ref_pos:
+                has_ack_section = ack_heading_pos > 0
+
+                # Also detect footnote-style acknowledgments: "*We thank...", "†We thank...",
+                # or numbered footnote like "1We thank...", "1. We thank..."
+                # Common patterns: "we thank", "we are grateful", "we acknowledge",
+                # "the author(s) thank", "i thank", "i am grateful"
+                footnote_ack = re.search(
+                    r"(?:^|\n)\s*(?:[*†‡§¶\d]+\.?\s*)"
+                    r"(?:we\s+(?:thank|acknowledge|are\s+grateful|are\s+indebted)|"
+                    r"(?:the\s+)?authors?\s+(?:thank|acknowledge|are?\s+grateful)|"
+                    r"i\s+(?:thank|acknowledge|am\s+grateful))",
+                    text_lower
+                )
+
+                if has_ack_section and ref_pos > 0:
+                    if ack_heading_pos > ref_pos:
                         checks.append(CheckItem(
                             name="Acknowledgment Placement",
                             status=CheckStatus.PASS,
@@ -355,7 +368,14 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
                             status=CheckStatus.WARNING,
                             message="Acknowledgments appear before references. This journal requires acknowledgments after the reference list, not as a numbered note.",
                         ))
-                elif not has_ack:
+                elif footnote_ack:
+                    checks.append(CheckItem(
+                        name="Acknowledgment Placement",
+                        status=CheckStatus.WARNING,
+                        message="Acknowledgments appear to be in a footnote (e.g., '*We thank...'). "
+                                "This journal requires acknowledgments as a separate section at the end of the manuscript after the reference list, not as a numbered note.",
+                    ))
+                elif not has_ack_section:
                     checks.append(CheckItem(
                         name="Acknowledgment Placement",
                         status=CheckStatus.WARNING,
