@@ -20,20 +20,33 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 
 class ExtractRulesRequest(BaseModel):
-    url: str
+    url: str = ""
     api_key: str
+    guidelines_text: str = ""
 
 
 @app.post("/api/extract-rules")
 async def api_extract_rules(request: ExtractRulesRequest):
-    """Scrape journal guidelines and extract structured rules."""
-    try:
-        guidelines_text = scrape_guidelines(request.url)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to scrape guidelines: {e}")
+    """Scrape journal guidelines or use provided text, then extract structured rules."""
+    if request.guidelines_text.strip():
+        guidelines_text = request.guidelines_text.strip()
+    elif request.url.strip():
+        try:
+            guidelines_text = scrape_guidelines(request.url)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to scrape guidelines: {e}")
 
-    if not guidelines_text.strip():
-        raise HTTPException(status_code=400, detail="No text content found at the provided URL.")
+        if not guidelines_text.strip():
+            raise HTTPException(status_code=400, detail="No text content found at the provided URL.")
+
+        if len(guidelines_text.strip()) < 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Very little text extracted ({len(guidelines_text.strip())} chars). "
+                       "The site may be blocking automated access. Try pasting the guidelines text manually."
+            )
+    else:
+        raise HTTPException(status_code=400, detail="Please provide either a URL or paste the guidelines text.")
 
     try:
         rules = extract_rules(guidelines_text, request.api_key)

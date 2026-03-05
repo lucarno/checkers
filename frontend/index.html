@@ -33,17 +33,31 @@
             <p class="text-xs text-gray-500 mt-1">Your key is sent only to the backend for rule extraction. It is not stored.</p>
         </div>
 
-        <!-- Step 2: Guidelines URL -->
+        <!-- Step 2: Guidelines URL or Text -->
         <div class="bg-white rounded-lg shadow p-6 mb-6">
             <h2 class="text-lg font-semibold mb-3">2. Journal Guidelines</h2>
-            <div class="flex gap-2">
-                <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines"
-                       class="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <button onclick="extractRules()" id="extractBtn"
-                        class="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                    Extract Rules
+            <div class="flex gap-2 mb-3">
+                <button onclick="setGuidelinesMode('url')" id="modeUrlBtn"
+                        class="px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white">
+                    From URL
+                </button>
+                <button onclick="setGuidelinesMode('text')" id="modeTextBtn"
+                        class="px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">
+                    Paste Text
                 </button>
             </div>
+            <div id="urlInput" class="flex gap-2">
+                <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines"
+                       class="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div id="textInput" class="hidden">
+                <textarea id="guidelinesText" rows="8" placeholder="Paste the journal's submission guidelines text here..."
+                          class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+            </div>
+            <button onclick="extractRules()" id="extractBtn"
+                    class="mt-3 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                Extract Rules
+            </button>
             <div id="rulesStatus" class="mt-3 text-sm hidden"></div>
             <div id="rulesPreview" class="mt-3 hidden">
                 <button onclick="toggleRules()" class="text-sm text-indigo-600 hover:underline">Show/hide extracted rules</button>
@@ -94,6 +108,19 @@
     <script>
         let extractedRules = null;
         let selectedFile = null;
+        let guidelinesMode = 'url';
+
+        function setGuidelinesMode(mode) {
+            guidelinesMode = mode;
+            document.getElementById('urlInput').classList.toggle('hidden', mode !== 'url');
+            document.getElementById('textInput').classList.toggle('hidden', mode !== 'text');
+            document.getElementById('modeUrlBtn').className = mode === 'url'
+                ? 'px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white'
+                : 'px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
+            document.getElementById('modeTextBtn').className = mode === 'text'
+                ? 'px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white'
+                : 'px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
+        }
 
         // File upload handling
         const dropZone = document.getElementById('dropZone');
@@ -149,22 +176,35 @@
         }
 
         async function extractRules() {
-            const url = document.getElementById('guidelinesUrl').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!url) { alert('Please enter a guidelines URL.'); return; }
             if (!apiKey) { alert('Please enter your Anthropic API key.'); return; }
+            if (guidelinesMode === 'url' && !document.getElementById('guidelinesUrl').value.trim()) {
+                alert('Please enter a guidelines URL.'); return;
+            }
+            if (guidelinesMode === 'text' && !document.getElementById('guidelinesText').value.trim()) {
+                alert('Please paste the guidelines text.'); return;
+            }
 
             showLoading('Scraping guidelines and extracting rules...');
             document.getElementById('extractBtn').disabled = true;
 
             try {
+                const url = guidelinesMode === 'url' ? document.getElementById('guidelinesUrl').value.trim() : '';
+                const guidelinesText = guidelinesMode === 'text' ? document.getElementById('guidelinesText').value.trim() : '';
+
                 const resp = await fetch('/api/extract-rules', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, api_key: apiKey }),
+                    body: JSON.stringify({ url, api_key: apiKey, guidelines_text: guidelinesText }),
                 });
                 const data = await resp.json();
-                if (!resp.ok) throw new Error(data.detail || 'Failed to extract rules');
+                if (!resp.ok) {
+                    const detail = data.detail || 'Failed to extract rules';
+                    if (detail.includes('Very little text') || detail.includes('Failed to scrape')) {
+                        throw new Error(detail + ' You can switch to "Paste Text" mode and paste the guidelines manually.');
+                    }
+                    throw new Error(detail);
+                }
 
                 extractedRules = data;
                 showStatus('rulesStatus', 'Rules extracted successfully!', false);
