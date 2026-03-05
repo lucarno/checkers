@@ -38,6 +38,8 @@ async def api_extract_rules(request: ExtractRulesRequest):
     try:
         rules = extract_rules(guidelines_text, request.api_key)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to extract rules: {e}")
 
     return rules.model_dump()
