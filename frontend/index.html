@@ -4,104 +4,684 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manuscript Journal Validator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
     <style>
-        .drop-zone.dragover {
-            border-color: #6366f1;
-            background-color: #eef2ff;
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #ffffff;
+            --bg-page: #fafafa;
+            --bg-card: #ffffff;
+            --bg-input: #f7f8fa;
+            --bg-code: #f4f5f7;
+            --border: #e5e7eb;
+            --border-light: #f0f0f0;
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --text-muted: #9ca3af;
+            --blue: #1a56db;
+            --blue-light: #e8f0fe;
+            --red: #dc2626;
+            --red-light: #fef2f2;
+            --orange: #d97706;
+            --orange-light: #fffbeb;
+            --green: #059669;
+            --green-light: #ecfdf5;
+            --gray: #6b7280;
+            --radius: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-lg: 0 4px 24px rgba(0,0,0,0.08);
         }
-        .status-pass { color: #16a34a; }
-        .status-fail { color: #dc2626; }
-        .status-warning { color: #d97706; }
-        .status-skipped { color: #6b7280; }
-        .icon-pass::before { content: "\2713"; }
-        .icon-fail::before { content: "\2717"; }
-        .icon-warning::before { content: "\26A0"; }
-        .icon-skipped::before { content: "\2014"; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-page);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Navigation */
+        .nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 18px 32px;
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .nav-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--text-primary);
+            border-radius: 7px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-family: 'Source Serif 4', Georgia, serif;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .nav-logo-text {
+            font-family: 'Source Serif 4', Georgia, serif;
+            font-weight: 600;
+            font-size: 1.15rem;
+            letter-spacing: -0.01em;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-btn {
+            padding: 8px 20px;
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+            background: var(--text-primary);
+            color: white;
+        }
+
+        .nav-btn:hover {
+            background: #1f2937;
+        }
+
+        /* Hero */
+        .hero {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 64px 32px 48px;
+        }
+
+        .hero h1 {
+            font-family: 'Source Serif 4', Georgia, serif;
+            font-size: 3.2rem;
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.025em;
+            max-width: 620px;
+        }
+
+        .hero h1 .highlight {
+            color: var(--blue);
+        }
+
+        .hero .subtitle {
+            margin-top: 24px;
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 520px;
+            line-height: 1.7;
+        }
+
+        .hero .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--blue);
+            margin-bottom: 20px;
+        }
+
+        .hero .tag-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--blue);
+        }
+
+        /* Main content area */
+        .main {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 0 32px 80px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            transition: box-shadow 0.2s;
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow);
+        }
+
+        .card-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+        }
+
+        /* Inputs */
+        input[type="text"],
+        input[type="url"],
+        input[type="password"],
+        textarea {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px 14px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        input::placeholder, textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        input:focus, textarea:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 3px var(--blue-light);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .help-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        /* Toggle */
+        .toggle-group {
+            display: flex;
+            gap: 2px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
+            padding: 3px;
+            margin-bottom: 12px;
+            width: fit-content;
+        }
+
+        .toggle-btn {
+            padding: 5px 14px;
+            border: none;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            background: transparent;
+            color: var(--text-muted);
+        }
+
+        .toggle-btn.active {
+            background: white;
+            color: var(--text-primary);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .toggle-btn:not(.active):hover {
+            color: var(--text-secondary);
+        }
+
+        /* Buttons */
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.825rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 12px;
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-input);
+            border-color: #d1d5db;
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 13px 24px;
+            background: var(--text-primary);
+            border: none;
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: white;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-primary:hover {
+            background: #1f2937;
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 1.5px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 32px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--blue);
+            background: var(--blue-light);
+        }
+
+        .drop-zone-icon {
+            font-size: 1.4rem;
+            margin-bottom: 8px;
+            color: var(--text-muted);
+        }
+
+        .drop-zone p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .drop-zone .hint {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 4px;
+        }
+
+        .file-info {
+            margin-top: 8px;
+            font-size: 0.825rem;
+            color: var(--green);
+            display: none;
+        }
+
+        .file-info.visible { display: block; }
+
+        /* Status */
+        .status {
+            margin-top: 12px;
+            font-size: 0.8rem;
+            display: none;
+            padding: 10px 14px;
+            border-radius: var(--radius);
+        }
+
+        .status.visible { display: block; }
+        .status.success { background: var(--green-light); color: var(--green); }
+        .status.error { background: var(--red-light); color: var(--red); }
+
+        /* Rules preview */
+        .rules-toggle {
+            display: inline-block;
+            margin-top: 8px;
+            font-size: 0.78rem;
+            color: var(--blue);
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-family: 'Inter', sans-serif;
+            padding: 0;
+        }
+
+        .rules-toggle:hover { text-decoration: underline; }
+
+        .rules-json {
+            margin-top: 8px;
+            background: var(--bg-code);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
+            padding: 14px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            overflow: auto;
+            max-height: 240px;
+            display: none;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Results panel — styled like refine.ink feedback panel */
+        .results-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            display: none;
+        }
+
+        .results-panel.visible { display: block; }
+
+        .panel-titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .panel-dots {
+            display: flex;
+            gap: 7px;
+        }
+
+        .panel-dots span {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .panel-dots span:nth-child(1) { background: #ef4444; }
+        .panel-dots span:nth-child(2) { background: #f59e0b; }
+        .panel-dots span:nth-child(3) { background: #22c55e; }
+
+        .panel-title {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .panel-body {
+            padding: 8px;
+        }
+
+        .summary-bar {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            flex-wrap: wrap;
+        }
+
+        .summary-stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .summary-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .summary-dot.pass { background: var(--green); }
+        .summary-dot.fail { background: var(--red); }
+        .summary-dot.warning { background: var(--orange); }
+        .summary-dot.skipped { background: var(--gray); }
+
+        /* Check items styled like refine.ink feedback cards */
+        .check-item {
+            padding: 20px 24px;
+            border-left: 3px solid transparent;
+            margin: 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .check-item:last-child { border-bottom: none; }
+
+        .check-item.status-pass { border-left-color: var(--green); }
+        .check-item.status-fail { border-left-color: var(--red); }
+        .check-item.status-warning { border-left-color: var(--orange); }
+        .check-item.status-skipped { border-left-color: var(--gray); }
+
+        .check-category {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .check-item.status-pass .check-category { color: var(--green); }
+        .check-item.status-fail .check-category { color: var(--red); }
+        .check-item.status-warning .check-category { color: var(--orange); }
+        .check-item.status-skipped .check-category { color: var(--gray); }
+
+        .check-name {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .check-quote {
+            background: var(--bg-code);
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .check-message {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-overlay.visible { display: flex; }
+
+        .loading-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px 32px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-box span {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 860px) {
+            .main {
+                grid-template-columns: 1fr;
+            }
+
+            .hero h1 {
+                font-size: 2.4rem;
+            }
+
+            .hero, .main, .nav {
+                padding-left: 20px;
+                padding-right: 20px;
+            }
+        }
+
+        .hidden { display: none !important; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <div class="max-w-3xl mx-auto px-4 py-10">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Manuscript Journal Validator</h1>
-        <p class="text-gray-600 mb-8">Check your manuscript against a journal's submission guidelines.</p>
-
-        <!-- Step 1: API Key -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-3">1. Anthropic API Key</h2>
-            <input type="password" id="apiKey" placeholder="sk-ant-..."
-                   class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <p class="text-xs text-gray-500 mt-1">Your key is sent only to the backend for rule extraction. It is not stored.</p>
+<body>
+    <!-- Nav -->
+    <nav class="nav">
+        <a href="/" class="nav-logo">
+            <div class="nav-logo-icon">v</div>
+            <span class="nav-logo-text">validator</span>
+        </a>
+        <div class="nav-right">
+            <button class="nav-btn" onclick="document.querySelector('.steps').scrollIntoView({behavior:'smooth'})">Get Started</button>
         </div>
+    </nav>
 
-        <!-- Step 2: Guidelines URL or Text -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-3">2. Journal Guidelines</h2>
-            <div class="flex gap-2 mb-3">
-                <button onclick="setGuidelinesMode('url')" id="modeUrlBtn"
-                        class="px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white">
-                    From URL
+    <!-- Hero -->
+    <div class="hero">
+        <div class="tag"><span class="tag-dot"></span> Manuscript Checker</div>
+        <h1>
+            <span class="highlight">Check your manuscript</span>
+            against journal guidelines before you submit.
+        </h1>
+        <p class="subtitle">Upload your paper and paste the journal's submission guidelines. Get detailed, actionable feedback on formatting, word count, structure, and more.</p>
+    </div>
+
+    <!-- Main: Steps + Results -->
+    <div class="main">
+        <div class="steps">
+            <!-- Step 1: API Key -->
+            <div class="card">
+                <div class="card-label">API Key</div>
+                <input type="password" id="apiKey" placeholder="sk-ant-...">
+                <p class="help-text">Your key is sent to the backend for rule extraction only. It is not stored.</p>
+            </div>
+
+            <!-- Step 2: Journal Guidelines -->
+            <div class="card">
+                <div class="card-label">Journal Guidelines</div>
+                <div class="toggle-group">
+                    <button onclick="setGuidelinesMode('url')" id="modeUrlBtn" class="toggle-btn active">From URL</button>
+                    <button onclick="setGuidelinesMode('text')" id="modeTextBtn" class="toggle-btn">Paste Text</button>
+                </div>
+                <div id="urlInput">
+                    <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines">
+                </div>
+                <div id="textInput" class="hidden">
+                    <textarea id="guidelinesText" rows="5" placeholder="Paste the journal's submission guidelines text here..."></textarea>
+                </div>
+                <button onclick="extractRules()" id="extractBtn" class="btn-secondary">
+                    Extract Rules
                 </button>
-                <button onclick="setGuidelinesMode('text')" id="modeTextBtn"
-                        class="px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">
-                    Paste Text
-                </button>
+                <div id="rulesStatus" class="status"></div>
+                <div id="rulesPreview" class="hidden">
+                    <button onclick="toggleRules()" class="rules-toggle">Show / hide extracted rules</button>
+                    <pre id="rulesJson" class="rules-json"></pre>
+                </div>
             </div>
-            <div id="urlInput" class="flex gap-2">
-                <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines"
-                       class="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+
+            <!-- Step 3: Upload -->
+            <div class="card">
+                <div class="card-label">Upload Manuscript</div>
+                <div id="dropZone" class="drop-zone">
+                    <div class="drop-zone-icon">&#8593;</div>
+                    <p>Drag & drop your file, or click to browse</p>
+                    <p class="hint">PDF, Word (.docx), or LaTeX (.tex)</p>
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.tex" class="hidden">
+                </div>
+                <div id="fileInfo" class="file-info"></div>
             </div>
-            <div id="textInput" class="hidden">
-                <textarea id="guidelinesText" rows="8" placeholder="Paste the journal's submission guidelines text here..."
-                          class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-            </div>
-            <button onclick="extractRules()" id="extractBtn"
-                    class="mt-3 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                Extract Rules
+
+            <!-- Check Button -->
+            <button onclick="checkManuscript()" id="checkBtn" class="btn-primary" disabled>
+                Check Manuscript
             </button>
-            <div id="rulesStatus" class="mt-3 text-sm hidden"></div>
-            <div id="rulesPreview" class="mt-3 hidden">
-                <button onclick="toggleRules()" class="text-sm text-indigo-600 hover:underline">Show/hide extracted rules</button>
-                <pre id="rulesJson" class="mt-2 bg-gray-50 p-3 rounded text-xs overflow-auto max-h-64 hidden"></pre>
-            </div>
         </div>
 
-        <!-- Step 3: Upload -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-3">3. Upload Manuscript</h2>
-            <div id="dropZone"
-                 class="drop-zone border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors">
-                <p class="text-gray-500">Drag & drop your file here, or click to browse</p>
-                <p class="text-xs text-gray-400 mt-1">Supports PDF, Word (.docx), and LaTeX (.tex) files</p>
-                <input type="file" id="fileInput" accept=".pdf,.docx,.tex" class="hidden">
+        <!-- Results Panel (refine.ink style) -->
+        <div id="results" class="results-panel">
+            <div class="panel-titlebar">
+                <div class="panel-dots">
+                    <span></span><span></span><span></span>
+                </div>
+                <div class="panel-title">Results</div>
             </div>
-            <div id="fileInfo" class="mt-2 text-sm text-gray-600 hidden"></div>
+            <div class="summary-bar" id="summary"></div>
+            <div class="panel-body" id="checksList"></div>
         </div>
+    </div>
 
-        <!-- Check Button -->
-        <button onclick="checkManuscript()" id="checkBtn"
-                class="w-full bg-green-600 text-white px-6 py-3 rounded-lg text-base font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed mb-6"
-                disabled>
-            Check Manuscript
-        </button>
-
-        <!-- Results -->
-        <div id="results" class="hidden">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-lg font-semibold mb-4">Results</h2>
-                <div id="summary" class="flex gap-4 mb-4 text-sm font-medium"></div>
-                <div id="checksList" class="space-y-2"></div>
-            </div>
-        </div>
-
-        <!-- Loading overlay -->
-        <div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-            <div class="bg-white rounded-lg p-6 shadow-xl flex items-center gap-3">
-                <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                </svg>
-                <span id="loadingText" class="text-gray-700">Processing...</span>
-            </div>
+    <!-- Loading -->
+    <div id="loading" class="loading-overlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <span id="loadingText">Processing...</span>
         </div>
     </div>
 
@@ -114,15 +694,10 @@
             guidelinesMode = mode;
             document.getElementById('urlInput').classList.toggle('hidden', mode !== 'url');
             document.getElementById('textInput').classList.toggle('hidden', mode !== 'text');
-            document.getElementById('modeUrlBtn').className = mode === 'url'
-                ? 'px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white'
-                : 'px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
-            document.getElementById('modeTextBtn').className = mode === 'text'
-                ? 'px-3 py-1 rounded-md text-sm font-medium bg-indigo-600 text-white'
-                : 'px-3 py-1 rounded-md text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
+            document.getElementById('modeUrlBtn').classList.toggle('active', mode === 'url');
+            document.getElementById('modeTextBtn').classList.toggle('active', mode === 'text');
         }
 
-        // File upload handling
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
 
@@ -150,8 +725,8 @@
             }
             selectedFile = file;
             const fileInfo = document.getElementById('fileInfo');
-            fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-            fileInfo.classList.remove('hidden');
+            fileInfo.textContent = `${file.name}  \u00b7  ${(file.size / 1024).toFixed(1)} KB`;
+            fileInfo.classList.add('visible');
             updateCheckButton();
         }
 
@@ -161,18 +736,17 @@
 
         function showLoading(text) {
             document.getElementById('loadingText').textContent = text;
-            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('loading').classList.add('visible');
         }
 
         function hideLoading() {
-            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('loading').classList.remove('visible');
         }
 
         function showStatus(elementId, message, isError) {
             const el = document.getElementById(elementId);
             el.textContent = message;
-            el.className = `mt-3 text-sm ${isError ? 'text-red-600' : 'text-green-600'}`;
-            el.classList.remove('hidden');
+            el.className = `status visible ${isError ? 'error' : 'success'}`;
         }
 
         async function extractRules() {
@@ -185,7 +759,7 @@
                 alert('Please paste the guidelines text.'); return;
             }
 
-            showLoading('Scraping guidelines and extracting rules...');
+            showLoading('Scraping guidelines and extracting rules\u2026');
             document.getElementById('extractBtn').disabled = true;
 
             try {
@@ -201,13 +775,13 @@
                 if (!resp.ok) {
                     const detail = data.detail || 'Failed to extract rules';
                     if (detail.includes('Very little text') || detail.includes('Failed to scrape')) {
-                        throw new Error(detail + ' You can switch to "Paste Text" mode and paste the guidelines manually.');
+                        throw new Error(detail + ' You can switch to \u201cPaste Text\u201d mode and paste the guidelines manually.');
                     }
                     throw new Error(detail);
                 }
 
                 extractedRules = data;
-                showStatus('rulesStatus', 'Rules extracted successfully!', false);
+                showStatus('rulesStatus', 'Rules extracted successfully.', false);
                 document.getElementById('rulesJson').textContent = JSON.stringify(data, null, 2);
                 document.getElementById('rulesPreview').classList.remove('hidden');
                 updateCheckButton();
@@ -220,13 +794,14 @@
         }
 
         function toggleRules() {
-            document.getElementById('rulesJson').classList.toggle('hidden');
+            const el = document.getElementById('rulesJson');
+            el.style.display = el.style.display === 'block' ? 'none' : 'block';
         }
 
         async function checkManuscript() {
             if (!extractedRules || !selectedFile) return;
 
-            showLoading('Analyzing manuscript...');
+            showLoading('Analyzing manuscript\u2026');
             document.getElementById('checkBtn').disabled = true;
 
             try {
@@ -253,32 +828,40 @@
 
         function displayResults(result) {
             const resultsDiv = document.getElementById('results');
-            resultsDiv.classList.remove('hidden');
+            resultsDiv.classList.add('visible');
 
-            // Summary
             const summary = document.getElementById('summary');
             summary.innerHTML = `
-                <span class="text-green-600">${result.passed} passed</span>
-                <span class="text-red-600">${result.failed} failed</span>
-                <span class="text-yellow-600">${result.warnings} warnings</span>
-                <span class="text-gray-500">${result.skipped} skipped</span>
+                <div class="summary-stat"><div class="summary-dot pass"></div>${result.passed} passed</div>
+                <div class="summary-stat"><div class="summary-dot fail"></div>${result.failed} failed</div>
+                <div class="summary-stat"><div class="summary-dot warning"></div>${result.warnings} warnings</div>
+                <div class="summary-stat"><div class="summary-dot skipped"></div>${result.skipped} skipped</div>
             `;
 
-            // Checks list
             const list = document.getElementById('checksList');
             list.innerHTML = '';
+
+            const statusLabels = {
+                pass: 'PASSED',
+                fail: 'FAILED',
+                warning: 'WARNING',
+                skipped: 'SKIPPED'
+            };
+
             for (const check of result.checks) {
-                const statusClass = `status-${check.status}`;
-                const iconClass = `icon-${check.status}`;
                 const div = document.createElement('div');
-                div.className = 'flex items-start gap-3 p-3 rounded-md bg-gray-50';
+                div.className = `check-item status-${check.status}`;
+
+                let detailsQuote = '';
+                if (check.details) {
+                    detailsQuote = `<div class="check-quote">${check.details}</div>`;
+                }
+
                 div.innerHTML = `
-                    <span class="${statusClass} ${iconClass} font-bold text-lg mt-0.5"></span>
-                    <div>
-                        <p class="font-medium text-gray-900 text-sm">${check.name}</p>
-                        <p class="text-sm text-gray-600">${check.message}</p>
-                        ${check.details ? `<p class="text-xs text-gray-400 mt-1">${check.details}</p>` : ''}
-                    </div>
+                    <div class="check-category">${statusLabels[check.status] || check.status.toUpperCase()}</div>
+                    <div class="check-name">${check.name}</div>
+                    ${detailsQuote}
+                    <div class="check-message">${check.message}</div>
                 `;
                 list.appendChild(div);
             }
