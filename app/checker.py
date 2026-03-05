@@ -106,7 +106,17 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
                 message="No abstract detected in the manuscript.",
             ))
         elif metadata.abstract_word_count:
-            if metadata.abstract_word_count <= rules.abstract_word_limit:
+            # Sanity check: if detected count is implausibly high, the parser
+            # likely failed to find the abstract boundary
+            max_plausible = max(rules.abstract_word_limit * 3, 500)
+            if metadata.abstract_word_count > max_plausible:
+                checks.append(CheckItem(
+                    name="Abstract Word Count",
+                    status=CheckStatus.WARNING,
+                    message=f"Abstract detected but word count ({metadata.abstract_word_count}) seems too high — "
+                            f"the parser may have included body text. Please verify manually (limit: {rules.abstract_word_limit}).",
+                ))
+            elif metadata.abstract_word_count <= rules.abstract_word_limit:
                 checks.append(CheckItem(
                     name="Abstract Word Count",
                     status=CheckStatus.PASS,
