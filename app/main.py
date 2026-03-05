@@ -13,6 +13,7 @@ from .checker import check_manuscript
 from .parsers.pdf_parser import parse_pdf
 from .parsers.docx_parser import parse_docx
 from .parsers.latex_parser import parse_latex
+from .journal_presets import get_presets_list, get_preset_rules
 
 app = FastAPI(title="Manuscript Journal Validator")
 
@@ -108,6 +109,21 @@ async def api_debug_parse(file: UploadFile = File(...)):
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported: .{ext}")
     return metadata.model_dump()
+
+
+@app.get("/api/journal-presets")
+async def api_journal_presets():
+    """Return the list of available journal presets for the dropdown."""
+    return get_presets_list()
+
+
+@app.get("/api/journal-presets/{preset_id}")
+async def api_journal_preset_rules(preset_id: str):
+    """Return the full rules for a specific journal preset."""
+    rules = get_preset_rules(preset_id)
+    if rules is None:
+        raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found.")
+    return rules
 
 
 @app.get("/")

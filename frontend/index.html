@@ -232,6 +232,40 @@
             margin-top: 8px;
         }
 
+        /* Select / dropdown */
+        select {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px 14px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239ca3af' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        select:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 3px var(--blue-light);
+        }
+
+        .preset-badge {
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 0.78rem;
+            color: var(--green);
+            background: var(--green-light);
+            padding: 6px 12px;
+            border-radius: var(--radius);
+        }
+
         /* Toggle */
         .toggle-group {
             display: flex;
@@ -610,39 +644,50 @@
             <span class="highlight">Check your manuscript</span>
             against journal guidelines before you submit.
         </h1>
-        <p class="subtitle">Upload your paper and paste the journal's submission guidelines. Get detailed, actionable feedback on formatting, word count, structure, and more.</p>
+        <p class="subtitle">Select your target journal, upload your paper, and get detailed feedback on formatting, word count, structure, and more.</p>
     </div>
 
     <!-- Main: Steps + Results -->
     <div class="main">
         <div class="steps">
-            <!-- Step 1: API Key -->
+            <!-- Step 1: Select Journal -->
             <div class="card">
-                <div class="card-label">API Key</div>
-                <input type="password" id="apiKey" placeholder="sk-ant-...">
-                <p class="help-text">Your key is sent to the backend for rule extraction only. It is not stored.</p>
-            </div>
-
-            <!-- Step 2: Journal Guidelines -->
-            <div class="card">
-                <div class="card-label">Journal Guidelines</div>
-                <div class="toggle-group">
-                    <button onclick="setGuidelinesMode('url')" id="modeUrlBtn" class="toggle-btn active">From URL</button>
-                    <button onclick="setGuidelinesMode('text')" id="modeTextBtn" class="toggle-btn">Paste Text</button>
-                </div>
-                <div id="urlInput">
-                    <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines">
-                </div>
-                <div id="textInput" class="hidden">
-                    <textarea id="guidelinesText" rows="5" placeholder="Paste the journal's submission guidelines text here..."></textarea>
-                </div>
-                <button onclick="extractRules()" id="extractBtn" class="btn-secondary">
-                    Extract Rules
-                </button>
+                <div class="card-label">Journal</div>
+                <select id="journalSelect" onchange="onJournalSelect()">
+                    <option value="" disabled selected>Select a journal...</option>
+                    <optgroup label="Economics" id="econGroup"></optgroup>
+                    <optgroup label="Political Science" id="polisciGroup"></optgroup>
+                    <option value="other">Other (enter guidelines manually)</option>
+                </select>
+                <div id="presetBadge" class="preset-badge hidden"></div>
                 <div id="rulesStatus" class="status"></div>
                 <div id="rulesPreview" class="hidden">
                     <button onclick="toggleRules()" class="rules-toggle">Show / hide extracted rules</button>
                     <pre id="rulesJson" class="rules-json"></pre>
+                </div>
+            </div>
+
+            <!-- Custom guidelines (only visible when "Other" is selected) -->
+            <div id="customGuidelinesCard" class="card hidden">
+                <div class="card-label">API Key</div>
+                <input type="password" id="apiKey" placeholder="sk-ant-...">
+                <p class="help-text">Required for extracting rules from custom guidelines. Not stored.</p>
+
+                <div style="margin-top: 18px;">
+                    <div class="card-label">Guidelines Source</div>
+                    <div class="toggle-group">
+                        <button onclick="setGuidelinesMode('url')" id="modeUrlBtn" class="toggle-btn active">From URL</button>
+                        <button onclick="setGuidelinesMode('text')" id="modeTextBtn" class="toggle-btn">Paste Text</button>
+                    </div>
+                    <div id="urlInput">
+                        <input type="url" id="guidelinesUrl" placeholder="https://journal.org/submission-guidelines">
+                    </div>
+                    <div id="textInput" class="hidden">
+                        <textarea id="guidelinesText" rows="5" placeholder="Paste the journal's submission guidelines text here..."></textarea>
+                    </div>
+                    <button onclick="extractRules()" id="extractBtn" class="btn-secondary">
+                        Extract Rules
+                    </button>
                 </div>
             </div>
 
@@ -689,6 +734,69 @@
         let extractedRules = null;
         let selectedFile = null;
         let guidelinesMode = 'url';
+        let journalPresets = [];
+
+        // Load journal presets on page load
+        async function loadPresets() {
+            try {
+                const resp = await fetch('/api/journal-presets');
+                journalPresets = await resp.json();
+                const econGroup = document.getElementById('econGroup');
+                const polisciGroup = document.getElementById('polisciGroup');
+                for (const p of journalPresets) {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.name} (${p.abbreviation})`;
+                    if (p.field === 'economics') {
+                        econGroup.appendChild(opt);
+                    } else {
+                        polisciGroup.appendChild(opt);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load presets:', err);
+            }
+        }
+        loadPresets();
+
+        async function onJournalSelect() {
+            const select = document.getElementById('journalSelect');
+            const val = select.value;
+            const customCard = document.getElementById('customGuidelinesCard');
+            const presetBadge = document.getElementById('presetBadge');
+
+            // Reset state
+            extractedRules = null;
+            document.getElementById('rulesStatus').className = 'status';
+            document.getElementById('rulesPreview').classList.add('hidden');
+            presetBadge.classList.add('hidden');
+
+            if (val === 'other') {
+                customCard.classList.remove('hidden');
+                updateCheckButton();
+                return;
+            }
+
+            customCard.classList.add('hidden');
+
+            // Load preset rules
+            try {
+                const resp = await fetch(`/api/journal-presets/${val}`);
+                if (!resp.ok) throw new Error('Failed to load preset');
+                const rules = await resp.json();
+                extractedRules = rules;
+
+                const preset = journalPresets.find(p => p.id === val);
+                presetBadge.textContent = `\u2713 ${preset ? preset.name : val} guidelines loaded`;
+                presetBadge.classList.remove('hidden');
+
+                document.getElementById('rulesJson').textContent = JSON.stringify(rules, null, 2);
+                document.getElementById('rulesPreview').classList.remove('hidden');
+                updateCheckButton();
+            } catch (err) {
+                showStatus('rulesStatus', `Error loading preset: ${err.message}`, true);
+            }
+        }
 
         function setGuidelinesMode(mode) {
             guidelinesMode = mode;
