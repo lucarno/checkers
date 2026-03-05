@@ -865,6 +865,7 @@ def get_presets_list() -> list[dict]:
         {
             "id": p["id"],
             "name": p["name"],
+            "guidelines_url": p.get("guidelines_url"),
             "abbreviation": p["abbreviation"],
             "field": p["field"],
         }

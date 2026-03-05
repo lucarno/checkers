@@ -860,7 +860,7 @@
                 presetBadge.textContent = `\u2713 ${preset ? preset.name : val} guidelines loaded`;
                 presetBadge.classList.remove('hidden');
 
-                renderRules(rules);
+                renderRules(rules, preset ? preset.guidelines_url : null);
                 document.getElementById('rulesJson').textContent = JSON.stringify(rules, null, 2);
                 document.getElementById('rulesPreview').classList.remove('hidden');
                 updateCheckButton();
@@ -961,7 +961,7 @@
 
                 extractedRules = data;
                 showStatus('rulesStatus', 'Rules extracted successfully.', false);
-                renderRules(data);
+                renderRules(data, guidelinesMode === 'url' ? url : null);
                 document.getElementById('rulesJson').textContent = JSON.stringify(data, null, 2);
                 document.getElementById('rulesPreview').classList.remove('hidden');
                 updateCheckButton();
@@ -978,7 +978,7 @@
             display.style.display = display.style.display === 'block' ? 'none' : 'block';
         }
 
-        function renderRules(rules) {
+        function renderRules(rules, guidelinesUrl) {
             const el = document.getElementById('rulesDisplay');
             const esc = s => s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
@@ -1016,6 +1016,9 @@
                 html += '<div class="rules-grid">';
                 for (const [label, value] of fmt) {
                     html += `<span class="rule-label">${esc(label)}</span><span class="rule-value">${esc(value)}</span>`;
+                }
+                if (guidelinesUrl) {
+                    html += `<span class="rule-label">Reference</span><span class="rule-value"><a href="${esc(guidelinesUrl)}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${esc(guidelinesUrl)}</a></span>`;
                 }
                 html += '</div></div>';
             }
