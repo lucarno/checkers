@@ -7,7 +7,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "American Economic Review",
         "abbreviation": "AER",
         "field": "economics",
-        "guidelines_url": "https://www.aeaweb.org/journals/aer/submissions/accepted-articles/styleguide",
+        "guidelines_url": "https://www.aeaweb.org/journals/aer/submissions",
         "rules": {
             "journal_name": "American Economic Review",
             "word_limit": None,
@@ -69,7 +69,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Quarterly Journal of Economics",
         "abbreviation": "QJE",
         "field": "economics",
-        "guidelines_url": "https://academic.oup.com/qje/pages/submission-guidelines",
+        "guidelines_url": "https://academic.oup.com/qje/pages/Instructions_To_Authors",
         "rules": {
             "journal_name": "Quarterly Journal of Economics",
             "word_limit": None,
@@ -131,7 +131,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Review of Economic Studies",
         "abbreviation": "ReStud",
         "field": "economics",
-        "guidelines_url": "https://academic.oup.com/restud/pages/General_Instructions",
+        "guidelines_url": "https://www.restud.com/submissions/",
         "rules": {
             "journal_name": "Review of Economic Studies",
             "word_limit": None,
@@ -162,7 +162,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "AEJ: Applied Economics",
         "abbreviation": "AEJ:Applied",
         "field": "economics",
-        "guidelines_url": "https://www.aeaweb.org/journals/app/submissions/accepted-articles/styleguide",
+        "guidelines_url": "https://www.aeaweb.org/journals/app/submissions",
         "rules": {
             "journal_name": "American Economic Journal: Applied Economics",
             "word_limit": None,
@@ -193,7 +193,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "AEJ: Macroeconomics",
         "abbreviation": "AEJ:Macro",
         "field": "economics",
-        "guidelines_url": "https://www.aeaweb.org/journals/mac/submissions/accepted-articles/styleguide",
+        "guidelines_url": "https://www.aeaweb.org/journals/mac/submissions",
         "rules": {
             "journal_name": "American Economic Journal: Macroeconomics",
             "word_limit": None,
@@ -224,7 +224,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Journal of Finance",
         "abbreviation": "JF",
         "field": "economics",
-        "guidelines_url": "https://afajof.org/journal-of-finance/submission-guidelines/",
+        "guidelines_url": "https://afajof.org/submissions/",
         "rules": {
             "journal_name": "Journal of Finance",
             "word_limit": None,
@@ -286,7 +286,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Journal of the European Economic Association",
         "abbreviation": "JEEA",
         "field": "economics",
-        "guidelines_url": "https://academic.oup.com/jeea/pages/General_Instructions",
+        "guidelines_url": "https://academic.oup.com/jeea/pages/Author_Guidelines",
         "rules": {
             "journal_name": "Journal of the European Economic Association",
             "word_limit": None,
@@ -318,7 +318,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "American Political Science Review",
         "abbreviation": "APSR",
         "field": "political_science",
-        "guidelines_url": "https://www.cambridge.org/core/journals/american-political-science-review/information/instructions-contributors",
+        "guidelines_url": "https://www.cambridge.org/core/journals/american-political-science-review/information/author-instructions/preparing-your-materials",
         "rules": {
             "journal_name": "American Political Science Review",
             "word_limit": 12000,
@@ -412,7 +412,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "British Journal of Political Science",
         "abbreviation": "BJPS",
         "field": "political_science",
-        "guidelines_url": "https://www.cambridge.org/core/journals/british-journal-of-political-science/information/instructions-contributors",
+        "guidelines_url": "https://www.cambridge.org/core/journals/british-journal-of-political-science/information/author-instructions",
         "rules": {
             "journal_name": "British Journal of Political Science",
             "word_limit": 12000,
@@ -443,7 +443,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Comparative Political Studies",
         "abbreviation": "CPS",
         "field": "political_science",
-        "guidelines_url": "https://journals.sagepub.com/author-instructions/CPS",
+        "guidelines_url": "https://journals.sagepub.com/author-instructions/cps",
         "rules": {
             "journal_name": "Comparative Political Studies",
             "word_limit": 12000,
@@ -505,7 +505,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "International Organization",
         "abbreviation": "IO",
         "field": "political_science",
-        "guidelines_url": "https://www.cambridge.org/core/journals/international-organization/information/instructions-contributors",
+        "guidelines_url": "https://www.cambridge.org/core/journals/international-organization/information/author-instructions/preparing-your-materials",
         "rules": {
             "journal_name": "International Organization",
             "word_limit": 15000,
@@ -536,7 +536,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Political Analysis",
         "abbreviation": "PA",
         "field": "political_science",
-        "guidelines_url": "https://www.cambridge.org/core/journals/political-analysis/information/instructions-contributors",
+        "guidelines_url": "https://www.cambridge.org/core/journals/political-analysis/information/author-instructions/preparing-your-materials",
         "rules": {
             "journal_name": "Political Analysis",
             "word_limit": 10000,
@@ -567,7 +567,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Annual Review of Political Science",
         "abbreviation": "ARPS",
         "field": "political_science",
-        "guidelines_url": "https://www.annualreviews.org/page/authors/author-instructions/preparing/review-articles",
+        "guidelines_url": "https://www.annualreviews.org/page/authors/general-information",
         "rules": {
             "journal_name": "Annual Review of Political Science",
             "word_limit": 15000,
@@ -598,7 +598,7 @@ JOURNAL_PRESETS: list[dict] = [
         "name": "Journal of Conflict Resolution",
         "abbreviation": "JCR",
         "field": "political_science",
-        "guidelines_url": "https://journals.sagepub.com/author-instructions/JCR",
+        "guidelines_url": "https://journals.sagepub.com/author-instructions/jcr",
         "rules": {
             "journal_name": "Journal of Conflict Resolution",
             "word_limit": 12000,
