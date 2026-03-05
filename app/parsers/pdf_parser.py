@@ -100,12 +100,89 @@ def _extract_abstract_by_margins(pages) -> int | None:
     return None
 
 
+def _detect_line_spacing(pages) -> str | None:
+    """Detect line spacing by measuring distances between text lines."""
+    # Sample body text from a middle page (avoid title pages and references)
+    sample_page_idx = min(2, len(pages) - 1)
+    page = pages[sample_page_idx]
+    if not page.chars:
+        return None
+
+    # Get the most common font size (body text size)
+    sizes = Counter(round(c["size"], 1) for c in page.chars if c.get("size"))
+    if not sizes:
+        return None
+    body_size = sizes.most_common(1)[0][0]
+
+    # Collect y-positions (top) of lines that use body font size
+    line_tops = []
+    seen_ys = set()
+    for char in sorted(page.chars, key=lambda c: c["top"]):
+        if not char.get("text", "").strip():
+            continue
+        if abs(round(char["size"], 1) - body_size) > 0.5:
+            continue
+        y = round(char["top"], 1)
+        if y not in seen_ys:
+            seen_ys.add(y)
+            line_tops.append(y)
+
+    if len(line_tops) < 5:
+        return None
+
+    # Calculate consecutive line distances
+    distances = [line_tops[i + 1] - line_tops[i] for i in range(len(line_tops) - 1)]
+    # Filter out large gaps (paragraph breaks, section breaks)
+    median_dist = sorted(distances)[len(distances) // 2]
+    normal_distances = [d for d in distances if d < median_dist * 1.8]
+    if not normal_distances:
+        return None
+
+    avg_distance = sum(normal_distances) / len(normal_distances)
+
+    # The ratio of line distance to font size indicates spacing
+    # Single spacing ≈ 1.0-1.2x font size
+    # 1.5 spacing ≈ 1.3-1.7x font size
+    # Double spacing ≈ 1.8-2.5x font size
+    ratio = avg_distance / body_size
+
+    if ratio >= 1.8:
+        return "double"
+    elif ratio >= 1.3:
+        return "1.5"
+    else:
+        return "single"
+
+
+def _find_page_before_appendix(all_text_parts: list[str]) -> int:
+    """Find the page count up to (and including) the references section, excluding appendix."""
+    import re
+    for i in range(len(all_text_parts) - 1, -1, -1):
+        text_lower = all_text_parts[i].lower()
+        # Look for appendix heading on this page
+        if re.search(r"(?:^|\n)\s*(?:appendix|appendices|online appendix|supplementary|internet appendix)\b",
+                      text_lower):
+            # Return the page number before this page (i is 0-indexed)
+            # But only if we've already passed references
+            # Check if references appeared on an earlier page
+            for j in range(i):
+                if re.search(r"(?:^|\n)\s*(?:references|bibliography|works cited|literature cited)\b",
+                             all_text_parts[j].lower()):
+                    return i  # pages 0..i-1 = i pages (the appendix page is excluded)
+            # References might be on the same page as appendix starts, count that page
+            if re.search(r"(?:references|bibliography)\b", text_lower):
+                return i + 1
+            break
+    # No appendix found: return total page count
+    return len(all_text_parts)
+
+
 def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     """Extract metadata from a PDF manuscript."""
     pdf = pdfplumber.open(io.BytesIO(file_bytes))
 
     pages = pdf.pages
-    page_count = len(pages)
+    total_pages = len(pages)
 
     all_text_parts = []
     font_counter: Counter = Counter()
@@ -127,9 +204,15 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     words = full_text.split()
     word_count = len(words)
 
+    # Page count: count only up to references, excluding appendix
+    page_count = _find_page_before_appendix(all_text_parts)
+
     # Detect most common font and size
     detected_font = font_counter.most_common(1)[0][0] if font_counter else None
     detected_size = size_counter.most_common(1)[0][0] if size_counter else None
+
+    # Detect line spacing from inter-line distances
+    detected_line_spacing = _detect_line_spacing(pages) if len(pages) >= 2 else None
 
     # Detect sections
     text_lower = full_text.lower()
@@ -148,54 +231,65 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         abstract_word_count = _extract_abstract_by_margins(pages)
 
         if not abstract_word_count:
-            # Strategy 2: Text-based extraction with end markers
-            abs_start = text_lower.find("abstract")
-            abs_text_after = full_text[abs_start + len("abstract"):]
-            abs_end = len(abs_text_after)
-            end_markers = [
-                "introduction", "keywords", "key words", "jel",
-                "1.", "1 ", "i.", "i ",
-                "literature review", "background", "motivation",
-                "methods", "methodology", "data",
-                "table of contents",
-            ]
-            for marker in end_markers:
-                idx = abs_text_after.lower().find(marker)
-                if 0 < idx < abs_end:
-                    abs_end = idx
-            abstract_text = abs_text_after[:abs_end].strip()
-            abstract_words = abstract_text.split()
+            # Strategy 2: First-page text extraction with section-heading end markers
+            # Only search first 2 pages to avoid matching body text
+            first_pages_text = "\n".join(all_text_parts[:2])
+            fp_lower = first_pages_text.lower()
+            abs_start = fp_lower.find("abstract")
+            if abs_start >= 0:
+                abs_text_after = first_pages_text[abs_start + len("abstract"):]
+                # Strip leading colon, dash, period, whitespace
+                abs_text_after = abs_text_after.lstrip(":.- \t\n")
 
-            if len(abstract_words) > 400:
-                # Strategy 3: First-page extraction with footnote detection
-                first_page_text = all_text_parts[0] if all_text_parts else ""
-                fp_lower = first_page_text.lower()
-                fp_abs_start = fp_lower.find("abstract")
-                if fp_abs_start >= 0:
-                    fp_abs_text = first_page_text[fp_abs_start + len("abstract"):]
-                    footnote_idx = len(fp_abs_text)
-                    for fn_marker in ["\n*", "\n†", "\n‡", "\n∗"]:
-                        idx = fp_abs_text.find(fn_marker)
-                        if 0 < idx < footnote_idx:
-                            footnote_idx = idx
-                    double_nl = fp_abs_text.find("\n\n")
-                    if 0 < double_nl < footnote_idx:
-                        footnote_idx = double_nl
-                    fp_abstract = fp_abs_text[:footnote_idx].strip()
-                    if 20 < len(fp_abstract.split()) < 500:
-                        abstract_word_count = len(fp_abstract.split())
-                    else:
-                        for chunk in fp_abs_text.split("\n\n"):
-                            chunk = chunk.strip()
-                            if chunk and len(chunk.split()) > 20:
-                                abstract_word_count = len(chunk.split())
-                                break
-                        else:
-                            abstract_word_count = len(abstract_words)
-                else:
+                abs_end = len(abs_text_after)
+                # Only match end markers at the START of a line (section headings)
+                import re as _re
+                heading_patterns = [
+                    r"\n\s*(?:1[\.\)]?\s+)?introduction\b",
+                    r"\n\s*keywords?\s*:",
+                    r"\n\s*key\s+words?\s*:",
+                    r"\n\s*jel\s+(?:codes?|classification)",
+                    r"\n\s*(?:1[\.\)])\s+[A-Z]",  # "1. Section" or "1) Section"
+                    r"\n\s*i[\.\)]\s+[A-Z]",  # "I. Section"
+                    r"\n\s*literature\s+review\b",
+                    r"\n\s*(?:\d+[\.\)]?\s+)?background\b",
+                    r"\n\s*(?:\d+[\.\)]?\s+)?motivation\b",
+                    r"\n\s*(?:\d+[\.\)]?\s+)?methods?\b",
+                    r"\n\s*(?:\d+[\.\)]?\s+)?methodology\b",
+                    r"\n\s*table\s+of\s+contents\b",
+                ]
+                for pattern in heading_patterns:
+                    match = _re.search(pattern, abs_text_after.lower())
+                    if match and 0 < match.start() < abs_end:
+                        abs_end = match.start()
+
+                # Also check for footnote markers
+                for fn_marker in ["\n*", "\n†", "\n‡", "\n∗"]:
+                    idx = abs_text_after.find(fn_marker)
+                    if 0 < idx < abs_end:
+                        abs_end = idx
+
+                # Double newline can indicate end of abstract
+                double_nl = abs_text_after.find("\n\n")
+                if double_nl > 0:
+                    # Only use double newline if it gives a reasonable abstract
+                    candidate_wc = len(abs_text_after[:double_nl].split())
+                    if 30 <= candidate_wc <= 400 and double_nl < abs_end:
+                        abs_end = double_nl
+
+                abstract_text = abs_text_after[:abs_end].strip()
+                abstract_words = abstract_text.split()
+
+                # Validate: abstracts typically 30-400 words
+                if 20 <= len(abstract_words) <= 500:
                     abstract_word_count = len(abstract_words)
-            else:
-                abstract_word_count = len(abstract_words)
+                elif len(abstract_words) > 500:
+                    # Too long — try splitting on double newlines for first paragraph
+                    for chunk in abs_text_after.split("\n\n"):
+                        chunk = chunk.strip()
+                        if chunk and 20 <= len(chunk.split()) <= 500:
+                            abstract_word_count = len(chunk.split())
+                            break
 
     # References
     has_references = any(s in text_lower for s in ["references", "bibliography"])
@@ -225,6 +319,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         page_count=page_count,
         detected_font=detected_font,
         detected_font_size=detected_size,
+        detected_line_spacing=detected_line_spacing,
         detected_sections=detected_sections,
         has_abstract=has_abstract,
         abstract_word_count=abstract_word_count,
