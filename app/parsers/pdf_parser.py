@@ -80,20 +80,43 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
             idx = abs_text_after.lower().find(marker)
             if 0 < idx < abs_end:
                 abs_end = idx
-        # Safety cap: abstracts are rarely over 500 words
         abstract_text = abs_text_after[:abs_end].strip()
-        words = abstract_text.split()
-        if len(words) > 500:
-            # Likely failed to find the end; try splitting on double newline
-            for i, chunk in enumerate(abstract_text.split("\n\n")):
-                first_para = chunk.strip()
-                if first_para and len(first_para.split()) > 20:
-                    abstract_word_count = len(first_para.split())
-                    break
+        abstract_words = abstract_text.split()
+
+        if len(abstract_words) > 400:
+            # End markers didn't work — try page-based extraction
+            # Abstract is almost always on the first page only
+            first_page_text = all_text_parts[0] if all_text_parts else ""
+            fp_lower = first_page_text.lower()
+            fp_abs_start = fp_lower.find("abstract")
+            if fp_abs_start >= 0:
+                fp_abs_text = first_page_text[fp_abs_start + len("abstract"):]
+                # Try to find a footnote marker (e.g., "*We thank" or "†")
+                footnote_idx = len(fp_abs_text)
+                for fn_marker in ["\n*", "\n†", "\n‡", "\n∗"]:
+                    idx = fp_abs_text.find(fn_marker)
+                    if 0 < idx < footnote_idx:
+                        footnote_idx = idx
+                # Also try double newline as paragraph separator
+                double_nl = fp_abs_text.find("\n\n")
+                if 0 < double_nl < footnote_idx:
+                    footnote_idx = double_nl
+                fp_abstract = fp_abs_text[:footnote_idx].strip()
+                if 20 < len(fp_abstract.split()) < 500:
+                    abstract_word_count = len(fp_abstract.split())
+                else:
+                    # Last resort: take first paragraph-like chunk
+                    for chunk in fp_abs_text.split("\n\n"):
+                        chunk = chunk.strip()
+                        if chunk and len(chunk.split()) > 20:
+                            abstract_word_count = len(chunk.split())
+                            break
+                    else:
+                        abstract_word_count = len(abstract_words)
             else:
-                abstract_word_count = len(words)
+                abstract_word_count = len(abstract_words)
         else:
-            abstract_word_count = len(words)
+            abstract_word_count = len(abstract_words)
 
     # References
     has_references = any(s in text_lower for s in ["references", "bibliography"])
