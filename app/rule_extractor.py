@@ -1,4 +1,5 @@
 import json
+import re
 import anthropic
 from .models import JournalRules
 
@@ -55,12 +56,13 @@ def extract_rules(guidelines_text: str, api_key: str) -> JournalRules:
 
     response_text = message.content[0].text.strip()
 
-    # Handle potential markdown code blocks in response
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        # Remove first and last lines (``` markers)
-        lines = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        response_text = "\n".join(lines)
+    # Strip markdown code fences anywhere in the response
+    response_text = re.sub(r"```(?:json)?\s*\n?", "", response_text).strip()
+
+    # Extract the first JSON object from the response
+    match = re.search(r"\{", response_text)
+    if match:
+        response_text = response_text[match.start():]
 
     data = json.loads(response_text)
     return JournalRules(**data)
