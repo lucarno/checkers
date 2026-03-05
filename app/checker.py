@@ -1,4 +1,53 @@
+import re
 from .models import JournalRules, ManuscriptMetadata, CheckItem, CheckResult, CheckStatus
+
+
+def _detect_citation_style(text: str) -> str | None:
+    """Heuristic detection of citation style from manuscript text."""
+    # Extract references section
+    text_lower = text.lower()
+    ref_start = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
+    ref_section = text[ref_start:] if ref_start > 0 else ""
+
+    # In-text citation patterns
+    # Numbered: [1], [2,3], [1-3]
+    numbered_cites = len(re.findall(r"\[[\d,\s\-–]+\]", text))
+    # Author-year: (Author, 2020) or (Author 2020)
+    author_year_cites = len(re.findall(r"\([A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?,?\s*\d{4}", text))
+
+    # Reference list patterns
+    if ref_section:
+        # APA: Author, A. B. (2020). Title.
+        apa_refs = len(re.findall(r"\(\d{4}[a-z]?\)\.\s", ref_section))
+        # Vancouver/Numbered: 1. Author... or [1] Author...
+        vancouver_refs = len(re.findall(r"(?:^\s*\d+[\.\)]\s|\[\d+\]\s)", ref_section, re.MULTILINE))
+        # Chicago author-date is similar to APA in list format
+        # Harvard is also author-year with slight differences
+    else:
+        apa_refs = 0
+        vancouver_refs = 0
+
+    # Decision logic
+    if numbered_cites > 5 and numbered_cites > author_year_cites * 2:
+        if vancouver_refs > 3:
+            return "Vancouver"
+        return "Numbered"
+
+    if author_year_cites > 3:
+        if apa_refs > 3:
+            return "APA"
+        # Could be Harvard or Chicago — hard to distinguish without deeper analysis
+        # Check for "et al." usage and format
+        if re.search(r"\(\w+\s+et\s+al\.\s*,?\s*\d{4}\)", text):
+            return "APA"
+        return "Harvard"
+
+    # Check for footnote-based citations (Chicago notes-bibliography)
+    footnote_cites = len(re.findall(r"(?:Ibid|ibid|Op\.\s*cit)", text))
+    if footnote_cites > 2:
+        return "Chicago"
+
+    return None
 
 
 def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> CheckResult:
@@ -177,6 +226,31 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
                 status=CheckStatus.PASS,
                 message="No obvious author-identifying information detected.",
                 details="Please double-check manually for self-citations or other identifying information.",
+            ))
+
+    # Citation style check
+    if rules.citation_style and rules.citation_style.value not in ("Unknown", "Other") and metadata.raw_text:
+        detected_style = _detect_citation_style(metadata.raw_text)
+        required = rules.citation_style.value
+        if detected_style:
+            if detected_style.lower() == required.lower():
+                checks.append(CheckItem(
+                    name="Citation Style",
+                    status=CheckStatus.PASS,
+                    message=f"Citation style appears to be {detected_style}, matching required {required}.",
+                ))
+            else:
+                checks.append(CheckItem(
+                    name="Citation Style",
+                    status=CheckStatus.WARNING,
+                    message=f"Citation style appears to be {detected_style}, but journal requires {required}.",
+                    details="Citation style detection is heuristic-based. Please verify manually.",
+                ))
+        else:
+            checks.append(CheckItem(
+                name="Citation Style",
+                status=CheckStatus.SKIPPED,
+                message=f"Could not detect citation style. Required: {required}.",
             ))
 
     # References check
