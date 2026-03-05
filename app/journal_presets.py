@@ -54,6 +54,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "Econometrica",
             "word_limit": 17000,
+            "word_count_includes": ["body", "references", "appendix"],
             "page_limit": 45,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -417,6 +418,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "American Political Science Review",
             "word_limit": 11000,
+            "word_count_includes": ["body", "abstract"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -468,6 +470,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "American Journal of Political Science",
             "word_limit": 10000,
+            "word_count_includes": ["body"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -553,6 +556,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "British Journal of Political Science",
             "word_limit": 10000,
+            "word_count_includes": ["body"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -602,6 +606,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "Comparative Political Studies",
             "word_limit": 12000,
+            "word_count_includes": ["body", "abstract", "footnotes", "references"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -642,6 +647,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "World Politics",
             "word_limit": 12500,
+            "word_count_includes": ["body", "footnotes"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -682,6 +688,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "International Organization",
             "word_limit": 14000,
+            "word_count_includes": ["body", "footnotes"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -729,6 +736,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "Political Analysis",
             "word_limit": 6000,
+            "word_count_includes": ["body"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,
@@ -772,6 +780,7 @@ JOURNAL_PRESETS: list[dict] = [
         "rules": {
             "journal_name": "Annual Review of Political Science",
             "word_limit": 15000,
+            "word_count_includes": ["body", "references"],
             "page_limit": None,
             "font": "Times New Roman",
             "font_size": 12.0,

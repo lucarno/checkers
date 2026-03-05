@@ -840,16 +840,17 @@
 
             <!-- Word Count Options -->
             <div class="card" id="wordCountOptionsCard">
-                <div class="card-label">Word Count Options</div>
+                <div class="card-label">Word Count: Sections Included</div>
                 <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:10px">
-                    Exclude sections from word count when checking against the journal limit:
+                    Sections that count toward the journal's word limit (auto-detected from guidelines):
                 </p>
                 <div class="wc-options">
-                    <label class="wc-checkbox"><input type="checkbox" value="title_page"> Title page</label>
-                    <label class="wc-checkbox"><input type="checkbox" value="abstract" checked> Abstract</label>
-                    <label class="wc-checkbox"><input type="checkbox" value="references" checked> References</label>
-                    <label class="wc-checkbox"><input type="checkbox" value="footnotes"> Footnotes / notes</label>
-                    <label class="wc-checkbox"><input type="checkbox" value="appendix" checked> Appendix</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="title_page" data-section="title_page"> Title page</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="abstract" data-section="abstract"> Abstract</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="body" data-section="body" checked disabled> Body</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="footnotes" data-section="footnotes"> Footnotes / notes</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="references" data-section="references"> References</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="appendix" data-section="appendix"> Appendix</label>
                 </div>
             </div>
 
@@ -935,6 +936,7 @@
                 if (!resp.ok) throw new Error('Failed to load preset');
                 const rules = await resp.json();
                 extractedRules = rules;
+                updateWordCountCheckboxes(rules.word_count_includes || ['body']);
 
                 const preset = journalPresets.find(p => p.id === val);
                 presetBadge.textContent = `\u2713 ${preset ? preset.name : val} guidelines loaded`;
@@ -1040,6 +1042,7 @@
                 }
 
                 extractedRules = data;
+                updateWordCountCheckboxes(data.word_count_includes || ['body']);
                 showStatus('rulesStatus', 'Rules extracted successfully.', false);
                 renderRules(data, guidelinesMode === 'url' ? url : null);
                 document.getElementById('rulesJson').textContent = JSON.stringify(data, null, 2);
@@ -1121,9 +1124,22 @@
             el.innerHTML = html;
         }
 
-        function getWordCountExcludes() {
+        function getWordCountIncludes() {
             const checkboxes = document.querySelectorAll('.wc-checkbox input:checked');
             return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        function updateWordCountCheckboxes(includes) {
+            // Set checkboxes based on LLM-extracted word_count_includes
+            const allCheckboxes = document.querySelectorAll('.wc-checkbox input[data-section]');
+            for (const cb of allCheckboxes) {
+                const section = cb.dataset.section;
+                if (section === 'body') {
+                    cb.checked = true;  // body is always included
+                    continue;
+                }
+                cb.checked = includes.includes(section);
+            }
         }
 
         async function checkManuscript() {
@@ -1136,7 +1152,7 @@
                 const formData = new FormData();
                 formData.append('file', selectedFile);
                 formData.append('rules', JSON.stringify(extractedRules));
-                formData.append('word_count_excludes', getWordCountExcludes().join(','));
+                formData.append('word_count_includes', getWordCountIncludes().join(','));
 
                 const resp = await fetch('/api/check', {
                     method: 'POST',
@@ -1173,7 +1189,7 @@
             // Word count breakdown
             const swc = result.section_word_counts;
             if (swc && swc.total > 0) {
-                const excludes = new Set(getWordCountExcludes());
+                const includes = new Set(getWordCountIncludes());
                 const sections = [
                     { key: 'title_page', label: 'Title' },
                     { key: 'abstract', label: 'Abstract' },
@@ -1186,7 +1202,7 @@
                 for (const s of sections) {
                     const val = swc[s.key] || 0;
                     if (val === 0) continue;
-                    const excluded = excludes.has(s.key);
+                    const excluded = !includes.has(s.key);
                     breakdownHtml += `
                         <div class="wc-breakdown-item ${excluded ? 'wc-breakdown-excluded' : ''}">
                             <span class="wc-breakdown-value">${val.toLocaleString()}</span>
@@ -1194,10 +1210,10 @@
                         </div>
                     `;
                 }
-                // Show effective total
-                let effectiveTotal = swc.total;
-                for (const key of excludes) {
-                    effectiveTotal -= (swc[key] || 0);
+                // Show effective total = sum of included sections
+                let effectiveTotal = 0;
+                for (const key of includes) {
+                    effectiveTotal += (swc[key] || 0);
                 }
                 breakdownHtml += `
                     <div class="wc-breakdown-divider"></div>

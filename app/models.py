@@ -24,6 +24,11 @@ class FigureRequirements(BaseModel):
 class JournalRules(BaseModel):
     journal_name: Optional[str] = None
     word_limit: Optional[int] = None
+    word_count_includes: list[str] = Field(
+        default_factory=lambda: ["body"],
+        description="Which sections count toward the word limit. "
+                    "Values: title_page, abstract, body, footnotes, references, appendix",
+    )
     page_limit: Optional[int] = None
     font: Optional[str] = None
     font_size: Optional[float] = None

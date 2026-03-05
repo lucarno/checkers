@@ -12,6 +12,7 @@ Return ONLY valid JSON matching this schema (use null for fields you cannot dete
 {{
   "journal_name": "string or null",
   "word_limit": "integer or null",
+  "word_count_includes": ["list of manuscript sections that count toward the word limit"],
   "page_limit": "integer or null",
   "font": "string or null (e.g., 'Times New Roman')",
   "font_size": "number or null (e.g., 12)",
@@ -30,6 +31,12 @@ Return ONLY valid JSON matching this schema (use null for fields you cannot dete
   "anonymization_required": "boolean or null",
   "additional_notes": ["list of other notable requirements"]
 }}
+
+For word_count_includes, use these exact values: "title_page", "abstract", "body", "footnotes", "references", "appendix".
+- "body" should always be included.
+- Read the guidelines carefully to determine what the journal counts toward the word limit.
+- Examples: "10,000 words including footnotes" → ["body", "footnotes"]. "8,000 words excluding bibliography and abstract" → ["body", "footnotes"]. "15,000 words including notes but not references" → ["body", "footnotes"].
+- If the guidelines don't specify, use ["body"] as a safe default (most journals count only the main text).
 
 Guidelines text:
 ---

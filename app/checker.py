@@ -106,15 +106,16 @@ def _detect_citation_style(text: str) -> str | None:
 
 
 def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
-                     word_count_excludes: list[str] | None = None) -> CheckResult:
+                     word_count_includes: list[str] | None = None) -> CheckResult:
     """Compare manuscript metadata against journal rules and return results.
 
-    word_count_excludes: optional list of section names to exclude from word count
-        comparison. Valid values: "title_page", "abstract", "references",
-        "footnotes", "appendix".
+    word_count_includes: sections to count toward the word limit. Overrides
+        rules.word_count_includes if provided.
+        Values: "title_page", "abstract", "body", "footnotes", "references", "appendix".
     """
     checks: list[CheckItem] = []
-    excludes = set(word_count_excludes or [])
+    ALL_SECTIONS = ["title_page", "abstract", "body", "footnotes", "references", "appendix"]
+    includes = set(word_count_includes or rules.word_count_includes)
 
     # Word count check
     if rules.word_limit and metadata.word_count:
@@ -123,37 +124,35 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
         breakdown_parts = []
         effective_count = metadata.word_count
         if swc:
-            if swc.title_page:
-                breakdown_parts.append(f"Title page: {swc.title_page:,}")
-            if swc.abstract:
-                breakdown_parts.append(f"Abstract: {swc.abstract:,}")
-            if swc.body:
-                breakdown_parts.append(f"Body: {swc.body:,}")
-            if swc.footnotes:
-                breakdown_parts.append(f"Footnotes/notes: {swc.footnotes:,}")
-            if swc.references:
-                breakdown_parts.append(f"References: {swc.references:,}")
-            if swc.appendix:
-                breakdown_parts.append(f"Appendix: {swc.appendix:,}")
+            section_labels = {
+                "title_page": "Title page",
+                "abstract": "Abstract",
+                "body": "Body",
+                "footnotes": "Footnotes/notes",
+                "references": "References",
+                "appendix": "Appendix",
+            }
+            for key in ALL_SECTIONS:
+                val = getattr(swc, key, 0) or 0
+                if val > 0:
+                    marker = "" if key in includes else " (excluded)"
+                    breakdown_parts.append(f"{section_labels[key]}: {val:,}{marker}")
 
-            # Calculate effective count with exclusions
-            if excludes:
-                excluded_words = 0
-                excluded_labels = []
-                for field in excludes:
-                    val = getattr(swc, field, 0) or 0
-                    excluded_words += val
-                    if val > 0:
-                        excluded_labels.append(field.replace("_", " "))
-                effective_count = max(0, metadata.word_count - excluded_words)
+            # Effective count = sum of included sections only
+            effective_count = sum(getattr(swc, k, 0) or 0 for k in includes)
+
+            excluded_labels = [
+                section_labels[k] for k in ALL_SECTIONS
+                if k not in includes and (getattr(swc, k, 0) or 0) > 0
+            ]
 
         breakdown = " | ".join(breakdown_parts) if breakdown_parts else None
 
         if effective_count <= rules.word_limit:
             msg = f"Word count ({effective_count:,}) is within the limit ({rules.word_limit:,})."
-            if excludes and effective_count != metadata.word_count:
+            if excluded_labels:
                 msg = (f"Word count ({effective_count:,}) is within the limit ({rules.word_limit:,}) "
-                       f"(total: {metadata.word_count:,}, excluding {', '.join(excluded_labels)}).")
+                       f"(excluding {', '.join(excluded_labels).lower()}).")
             checks.append(CheckItem(
                 name="Word Count",
                 status=CheckStatus.PASS,
@@ -163,9 +162,9 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
         else:
             over = effective_count - rules.word_limit
             msg = f"Word count ({effective_count:,}) exceeds the limit ({rules.word_limit:,}) by {over:,} words."
-            if excludes and effective_count != metadata.word_count:
+            if excluded_labels:
                 msg = (f"Word count ({effective_count:,}) exceeds the limit ({rules.word_limit:,}) by {over:,} words "
-                       f"(total: {metadata.word_count:,}, excluding {', '.join(excluded_labels)}).")
+                       f"(excluding {', '.join(excluded_labels).lower()}).")
             checks.append(CheckItem(
                 name="Word Count",
                 status=CheckStatus.FAIL,
