@@ -4,6 +4,7 @@ from collections import Counter
 import pdfplumber
 
 from ..models import ManuscriptMetadata
+from .segmenter import segment_text
 
 # Common section headings in academic papers
 SECTION_PATTERNS = [
@@ -310,6 +311,9 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
             title = stripped
             break
 
+    # Section word counts
+    section_word_counts = segment_text(full_text)
+
     pdf.close()
 
     return ManuscriptMetadata(
@@ -328,5 +332,6 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         figure_count=figure_count,
         contains_author_info=contains_author_info,
         title=title,
+        section_word_counts=section_word_counts,
         raw_text=full_text,
     )

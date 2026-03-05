@@ -105,24 +105,72 @@ def _detect_citation_style(text: str) -> str | None:
     return None
 
 
-def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> CheckResult:
-    """Compare manuscript metadata against journal rules and return results."""
+def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
+                     word_count_excludes: list[str] | None = None) -> CheckResult:
+    """Compare manuscript metadata against journal rules and return results.
+
+    word_count_excludes: optional list of section names to exclude from word count
+        comparison. Valid values: "title_page", "abstract", "references",
+        "footnotes", "appendix".
+    """
     checks: list[CheckItem] = []
+    excludes = set(word_count_excludes or [])
 
     # Word count check
     if rules.word_limit and metadata.word_count:
-        if metadata.word_count <= rules.word_limit:
+        swc = metadata.section_word_counts
+        # Build breakdown string for details
+        breakdown_parts = []
+        effective_count = metadata.word_count
+        if swc:
+            if swc.title_page:
+                breakdown_parts.append(f"Title page: {swc.title_page:,}")
+            if swc.abstract:
+                breakdown_parts.append(f"Abstract: {swc.abstract:,}")
+            if swc.body:
+                breakdown_parts.append(f"Body: {swc.body:,}")
+            if swc.footnotes:
+                breakdown_parts.append(f"Footnotes/notes: {swc.footnotes:,}")
+            if swc.references:
+                breakdown_parts.append(f"References: {swc.references:,}")
+            if swc.appendix:
+                breakdown_parts.append(f"Appendix: {swc.appendix:,}")
+
+            # Calculate effective count with exclusions
+            if excludes:
+                excluded_words = 0
+                excluded_labels = []
+                for field in excludes:
+                    val = getattr(swc, field, 0) or 0
+                    excluded_words += val
+                    if val > 0:
+                        excluded_labels.append(field.replace("_", " "))
+                effective_count = max(0, metadata.word_count - excluded_words)
+
+        breakdown = " | ".join(breakdown_parts) if breakdown_parts else None
+
+        if effective_count <= rules.word_limit:
+            msg = f"Word count ({effective_count:,}) is within the limit ({rules.word_limit:,})."
+            if excludes and effective_count != metadata.word_count:
+                msg = (f"Word count ({effective_count:,}) is within the limit ({rules.word_limit:,}) "
+                       f"(total: {metadata.word_count:,}, excluding {', '.join(excluded_labels)}).")
             checks.append(CheckItem(
                 name="Word Count",
                 status=CheckStatus.PASS,
-                message=f"Word count ({metadata.word_count:,}) is within the limit ({rules.word_limit:,}).",
+                message=msg,
+                details=breakdown,
             ))
         else:
-            over = metadata.word_count - rules.word_limit
+            over = effective_count - rules.word_limit
+            msg = f"Word count ({effective_count:,}) exceeds the limit ({rules.word_limit:,}) by {over:,} words."
+            if excludes and effective_count != metadata.word_count:
+                msg = (f"Word count ({effective_count:,}) exceeds the limit ({rules.word_limit:,}) by {over:,} words "
+                       f"(total: {metadata.word_count:,}, excluding {', '.join(excluded_labels)}).")
             checks.append(CheckItem(
                 name="Word Count",
                 status=CheckStatus.FAIL,
-                message=f"Word count ({metadata.word_count:,}) exceeds the limit ({rules.word_limit:,}) by {over:,} words.",
+                message=msg,
+                details=breakdown,
             ))
     elif rules.word_limit and not metadata.word_count:
         checks.append(CheckItem(
@@ -429,4 +477,5 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata) -> Check
         warnings=warnings,
         skipped=skipped,
         checks=checks,
+        section_word_counts=metadata.section_word_counts,
     )

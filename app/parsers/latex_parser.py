@@ -1,6 +1,7 @@
 import re
 
 from ..models import ManuscriptMetadata
+from .segmenter import segment_text
 
 SECTION_COMMANDS = re.compile(
     r"\\(?:section|subsection|subsubsection)\*?\{([^}]+)\}", re.IGNORECASE
@@ -101,6 +102,9 @@ def parse_latex(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     if has_references and not any("reference" in s.lower() or "bibliography" in s.lower() for s in detected_sections):
         detected_sections.append("References")
 
+    # Section word counts
+    section_word_counts = segment_text(body_text)
+
     return ManuscriptMetadata(
         filename=filename,
         file_type="latex",
@@ -117,5 +121,6 @@ def parse_latex(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         figure_count=figure_count,
         contains_author_info=contains_author_info,
         title=title,
+        section_word_counts=section_word_counts,
         raw_text=body_text,
     )

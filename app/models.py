@@ -38,6 +38,17 @@ class JournalRules(BaseModel):
     additional_notes: list[str] = Field(default_factory=list)
 
 
+class SectionWordCounts(BaseModel):
+    """Word counts for individual manuscript sections."""
+    title_page: int = 0       # Title, authors, affiliations (before abstract)
+    abstract: int = 0         # Abstract section
+    body: int = 0             # Main text (introduction through conclusion)
+    references: int = 0       # Reference list
+    footnotes: int = 0        # Footnotes / endnotes / table and figure notes
+    appendix: int = 0         # Appendices
+    total: int = 0            # Sum of all sections
+
+
 class ManuscriptMetadata(BaseModel):
     filename: str
     file_type: str  # "pdf", "docx", "latex"
@@ -54,6 +65,7 @@ class ManuscriptMetadata(BaseModel):
     figure_count: int = 0
     contains_author_info: bool = False
     title: Optional[str] = None
+    section_word_counts: Optional[SectionWordCounts] = None
     raw_text: Optional[str] = Field(None, exclude=True)
 
 
@@ -78,3 +90,4 @@ class CheckResult(BaseModel):
     warnings: int
     skipped: int
     checks: list[CheckItem]
+    section_word_counts: Optional[SectionWordCounts] = None

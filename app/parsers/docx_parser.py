@@ -5,6 +5,7 @@ from docx import Document
 from docx.shared import Pt
 
 from ..models import ManuscriptMetadata
+from .segmenter import segment_text
 
 SECTION_PATTERNS = [
     "abstract", "introduction", "literature review", "methodology", "methods",
@@ -158,6 +159,9 @@ def parse_docx(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     # Page count estimate (~250 words per page)
     page_count = max(1, word_count // 250) if word_count else None
 
+    # Section word counts
+    section_word_counts = segment_text(full_text)
+
     return ManuscriptMetadata(
         filename=filename,
         file_type="docx",
@@ -174,5 +178,6 @@ def parse_docx(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         figure_count=figure_count,
         contains_author_info=contains_author_info,
         title=title,
+        section_word_counts=section_word_counts,
         raw_text=full_text,
     )

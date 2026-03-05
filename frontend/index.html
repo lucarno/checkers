@@ -691,6 +691,71 @@
             }
         }
 
+        /* Word count options */
+        .wc-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 16px;
+        }
+
+        .wc-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .wc-checkbox input {
+            accent-color: var(--blue);
+            cursor: pointer;
+        }
+
+        /* Word count breakdown bar */
+        .wc-breakdown {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+            background: var(--bg-page);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
+            margin: 0 8px 8px;
+        }
+
+        .wc-breakdown-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .wc-breakdown-value {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .wc-breakdown-label {
+            font-size: 0.65rem;
+            font-weight: 500;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .wc-breakdown-excluded .wc-breakdown-value {
+            color: var(--text-muted);
+            text-decoration: line-through;
+        }
+
+        .wc-breakdown-divider {
+            width: 1px;
+            background: var(--border-light);
+            align-self: stretch;
+        }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -771,6 +836,21 @@
                     <input type="file" id="fileInput" accept=".pdf,.docx,.tex" class="hidden">
                 </div>
                 <div id="fileInfo" class="file-info"></div>
+            </div>
+
+            <!-- Word Count Options -->
+            <div class="card" id="wordCountOptionsCard">
+                <div class="card-label">Word Count Options</div>
+                <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:10px">
+                    Exclude sections from word count when checking against the journal limit:
+                </p>
+                <div class="wc-options">
+                    <label class="wc-checkbox"><input type="checkbox" value="title_page"> Title page</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="abstract" checked> Abstract</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="references" checked> References</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="footnotes"> Footnotes / notes</label>
+                    <label class="wc-checkbox"><input type="checkbox" value="appendix" checked> Appendix</label>
+                </div>
             </div>
 
             <!-- Check Button -->
@@ -1041,6 +1121,11 @@
             el.innerHTML = html;
         }
 
+        function getWordCountExcludes() {
+            const checkboxes = document.querySelectorAll('.wc-checkbox input:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
         async function checkManuscript() {
             if (!extractedRules || !selectedFile) return;
 
@@ -1051,6 +1136,7 @@
                 const formData = new FormData();
                 formData.append('file', selectedFile);
                 formData.append('rules', JSON.stringify(extractedRules));
+                formData.append('word_count_excludes', getWordCountExcludes().join(','));
 
                 const resp = await fetch('/api/check', {
                     method: 'POST',
@@ -1083,6 +1169,49 @@
 
             const list = document.getElementById('checksList');
             list.innerHTML = '';
+
+            // Word count breakdown
+            const swc = result.section_word_counts;
+            if (swc && swc.total > 0) {
+                const excludes = new Set(getWordCountExcludes());
+                const sections = [
+                    { key: 'title_page', label: 'Title' },
+                    { key: 'abstract', label: 'Abstract' },
+                    { key: 'body', label: 'Body' },
+                    { key: 'footnotes', label: 'Notes' },
+                    { key: 'references', label: 'References' },
+                    { key: 'appendix', label: 'Appendix' },
+                ];
+                let breakdownHtml = '';
+                for (const s of sections) {
+                    const val = swc[s.key] || 0;
+                    if (val === 0) continue;
+                    const excluded = excludes.has(s.key);
+                    breakdownHtml += `
+                        <div class="wc-breakdown-item ${excluded ? 'wc-breakdown-excluded' : ''}">
+                            <span class="wc-breakdown-value">${val.toLocaleString()}</span>
+                            <span class="wc-breakdown-label">${s.label}</span>
+                        </div>
+                    `;
+                }
+                // Show effective total
+                let effectiveTotal = swc.total;
+                for (const key of excludes) {
+                    effectiveTotal -= (swc[key] || 0);
+                }
+                breakdownHtml += `
+                    <div class="wc-breakdown-divider"></div>
+                    <div class="wc-breakdown-item">
+                        <span class="wc-breakdown-value">${effectiveTotal.toLocaleString()}</span>
+                        <span class="wc-breakdown-label">Counted</span>
+                    </div>
+                `;
+
+                const breakdownDiv = document.createElement('div');
+                breakdownDiv.className = 'wc-breakdown';
+                breakdownDiv.innerHTML = breakdownHtml;
+                list.appendChild(breakdownDiv);
+            }
 
             const statusLabels = {
                 pass: 'PASSED',

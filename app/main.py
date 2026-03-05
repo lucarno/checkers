@@ -60,7 +60,11 @@ async def api_extract_rules(request: ExtractRulesRequest):
 
 
 @app.post("/api/check")
-async def api_check(file: UploadFile = File(...), rules: str = Form(...)):
+async def api_check(
+    file: UploadFile = File(...),
+    rules: str = Form(...),
+    word_count_excludes: str = Form(""),
+):
     """Parse an uploaded manuscript and check it against rules."""
     # Parse rules JSON
     try:
@@ -68,6 +72,9 @@ async def api_check(file: UploadFile = File(...), rules: str = Form(...)):
         journal_rules = JournalRules(**rules_data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid rules JSON: {e}")
+
+    # Parse word count exclusions (comma-separated list)
+    excludes = [s.strip() for s in word_count_excludes.split(",") if s.strip()]
 
     # Read file
     file_bytes = await file.read()
@@ -90,7 +97,7 @@ async def api_check(file: UploadFile = File(...), rules: str = Form(...)):
         raise HTTPException(status_code=500, detail=f"Failed to parse manuscript: {e}")
 
     # Run checks
-    result = check_manuscript(journal_rules, metadata)
+    result = check_manuscript(journal_rules, metadata, word_count_excludes=excludes or None)
     return result.model_dump()
 
 
