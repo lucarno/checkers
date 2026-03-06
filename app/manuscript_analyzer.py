@@ -274,8 +274,34 @@ def _find_body_after_abstract(text: str, abstract_pos: int) -> int:
 
 
 def _wc(text: str) -> int:
-    """Count words in a text string."""
-    return len(text.split())
+    """Count words in a text string.
+
+    Handles PDF text extraction artifacts where words get joined without
+    spaces (e.g., "Thispaperexamines" instead of "This paper examines").
+    For such tokens, estimates the word count from the character length
+    using the average word length of normal tokens in the same text.
+    """
+    tokens = text.split()
+    if not tokens:
+        return 0
+
+    # Compute average word length from normal-sized tokens (2-20 letter chars)
+    normal_lengths = []
+    for t in tokens:
+        clean = re.sub(r'[^a-zA-Z]', '', t)
+        if 2 <= len(clean) <= 20:
+            normal_lengths.append(len(clean))
+    avg_word_len = sum(normal_lengths) / len(normal_lengths) if normal_lengths else 5.0
+
+    count = 0
+    for t in tokens:
+        clean = re.sub(r'[^a-zA-Z]', '', t)
+        # Joined-word tokens: >20 pure letters, no hyphens (hyphens = legit compound words)
+        if len(clean) > 20 and '-' not in t:
+            count += max(1, round(len(clean) / avg_word_len))
+        else:
+            count += 1
+    return count
 
 
 def analyze_manuscript(raw_text: str, api_key: str) -> dict:

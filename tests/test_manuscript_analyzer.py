@@ -369,6 +369,20 @@ class TestEdgeCases:
     def test_wc_normal(self):
         assert _wc("one two three four five") == 5
 
+    def test_wc_joined_words(self):
+        """PDF joined-word tokens should be estimated as multiple words."""
+        # "Thispaperexamines" is 3 words joined (17 chars) - under threshold, counts as 1
+        # "Thispaperexamineshowdemocratic" is 5 words joined (30 chars) - over threshold
+        text = "Thispaperexamineshowdemocraticpoliticians by securing regime trust"
+        count = _wc(text)
+        # The joined token should count as multiple words, not 1
+        assert count > 5, f"Joined words not split: {count}"
+
+    def test_wc_hyphenated_words_not_split(self):
+        """Hyphenated words like 'difference-in-differences' should count as 1."""
+        text = "using a difference-in-differences design with control variables"
+        assert _wc(text) == 7  # 7 whitespace tokens, hyphenated = 1 word
+
     def test_find_marker_with_non_breaking_space(self):
         text = "Abstract\u00a0\u00a0This paper"
         pos = _find_marker(text, "Abstract This paper")

@@ -50,8 +50,33 @@ _TABLE_FIGURE_NOTE = re.compile(
 
 
 def _wc(text: str) -> int:
-    """Count words in a text string."""
-    return len(text.split())
+    """Count words in a text string.
+
+    Handles PDF text extraction artifacts where words get joined without
+    spaces. For tokens >20 letter characters (likely multiple joined words),
+    estimates word count from character length using the average word length
+    of normal-sized tokens in the same text.
+    """
+    import re as _re
+    tokens = text.split()
+    if not tokens:
+        return 0
+
+    normal_lengths = []
+    for t in tokens:
+        clean = _re.sub(r'[^a-zA-Z]', '', t)
+        if 2 <= len(clean) <= 20:
+            normal_lengths.append(len(clean))
+    avg_word_len = sum(normal_lengths) / len(normal_lengths) if normal_lengths else 5.0
+
+    count = 0
+    for t in tokens:
+        clean = _re.sub(r'[^a-zA-Z]', '', t)
+        if len(clean) > 20 and '-' not in t:
+            count += max(1, round(len(clean) / avg_word_len))
+        else:
+            count += 1
+    return count
 
 
 def segment_text(full_text: str, abstract_word_count: int | None = None) -> SectionWordCounts:
