@@ -8,10 +8,35 @@ estimates.
 
 import json
 import re
+import unicodedata
 
 import anthropic
 
 from .models import ManuscriptMetadata, SectionWordCounts
+
+# Common PDF text extraction artifacts: ligatures, smart quotes, dashes
+_UNICODE_REPLACEMENTS = {
+    '\ufb00': 'ff',
+    '\ufb01': 'fi',
+    '\ufb02': 'fl',
+    '\ufb03': 'ffi',
+    '\ufb04': 'ffl',
+    '\u2018': "'",   # left single quote
+    '\u2019': "'",   # right single quote
+    '\u201c': '"',   # left double quote
+    '\u201d': '"',   # right double quote
+    '\u2013': '-',   # en-dash
+    '\u2014': '-',   # em-dash
+    '\u2012': '-',   # figure dash
+    '\u2015': '-',   # horizontal bar
+    '\u00a0': ' ',   # non-breaking space
+    '\u2002': ' ',   # en space
+    '\u2003': ' ',   # em space
+    '\u2009': ' ',   # thin space
+    '\u200a': ' ',   # hair space
+    '\u200b': '',    # zero-width space
+    '\ufeff': '',    # BOM / zero-width no-break space
+}
 
 ANALYSIS_PROMPT = """You are an expert academic manuscript analyst. Given the full text of a scholarly manuscript, identify the exact boundaries between sections.
 
@@ -67,10 +92,32 @@ Manuscript text:
 Return ONLY the JSON object."""
 
 
+def _normalize_unicode(text: str) -> str:
+    """Normalize unicode artifacts common in PDF text extraction."""
+    for orig, replacement in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(orig, replacement)
+    return text
+
+
+def _make_flexible_pattern(marker_text: str) -> str:
+    """Build a regex pattern from marker text with flexible whitespace and punctuation.
+
+    Each word is escaped for regex, and words are joined with a pattern that
+    allows any whitespace (including line breaks) and optional hyphens between
+    them (to handle PDF line-break hyphenation).
+    """
+    words = marker_text.split()
+    if not words:
+        return ""
+    escaped_words = [re.escape(w) for w in words]
+    return r'[\s\-]*'.join(escaped_words)
+
+
 def _find_marker(text: str, marker: str) -> int:
     """Find the position of a marker string in the text.
 
-    Tries exact match first, then progressively looser matching.
+    Tries exact match first, then progressively looser matching
+    with unicode normalization and flexible whitespace/punctuation.
     Returns -1 if not found.
     """
     if not marker:
@@ -81,29 +128,84 @@ def _find_marker(text: str, marker: str) -> int:
     if pos >= 0:
         return pos
 
-    # Normalize whitespace and try again
-    normalized_marker = re.sub(r'\s+', ' ', marker.strip())
-    # Build a regex that treats any whitespace in the marker as flexible whitespace
-    pattern = re.sub(r'\s+', r'\\s+', re.escape(normalized_marker))
-    m = re.search(pattern, text, re.IGNORECASE)
-    if m:
-        return m.start()
+    # Normalize unicode in both text and marker, then try flexible matching
+    norm_text = _normalize_unicode(text)
+    norm_marker = _normalize_unicode(re.sub(r'\s+', ' ', marker.strip()))
 
-    # Try with just the first 6 words (in case the LLM slightly misquoted the end)
-    words = normalized_marker.split()
+    # Full marker with flexible whitespace
+    pattern = _make_flexible_pattern(norm_marker)
+    if pattern:
+        m = re.search(pattern, norm_text, re.IGNORECASE)
+        if m:
+            return m.start()
+
+    # Try with just the first 6 words
+    words = norm_marker.split()
     if len(words) > 6:
-        short_marker = ' '.join(words[:6])
-        pattern = re.sub(r'\s+', r'\\s+', re.escape(short_marker))
-        m = re.search(pattern, text, re.IGNORECASE)
+        pattern = _make_flexible_pattern(' '.join(words[:6]))
+        m = re.search(pattern, norm_text, re.IGNORECASE)
         if m:
             return m.start()
 
     # Try first 4 words
     if len(words) > 4:
-        short_marker = ' '.join(words[:4])
-        pattern = re.sub(r'\s+', r'\\s+', re.escape(short_marker))
-        m = re.search(pattern, text, re.IGNORECASE)
+        pattern = _make_flexible_pattern(' '.join(words[:4]))
+        m = re.search(pattern, norm_text, re.IGNORECASE)
         if m:
+            return m.start()
+
+    # Try first 3 words
+    if len(words) > 3:
+        pattern = _make_flexible_pattern(' '.join(words[:3]))
+        m = re.search(pattern, norm_text, re.IGNORECASE)
+        if m:
+            return m.start()
+
+    return -1
+
+
+def _find_heading(text: str, heading: str, sec_type: str) -> int:
+    """Find a section heading in the text as a fallback when start_marker fails.
+
+    Searches for the heading text at the beginning of a line, which is how
+    section headings typically appear in extracted manuscript text.
+    Returns -1 if not found.
+    """
+    if not heading:
+        return -1
+
+    norm_text = _normalize_unicode(text)
+    norm_heading = _normalize_unicode(heading.strip())
+
+    # Try: heading at start of line (with optional numbering/whitespace before it)
+    escaped = re.escape(norm_heading)
+    # Allow optional leading whitespace and numbering like "1." or "I."
+    pattern = r'(?:^|\n)\s*' + escaped + r'\s*(?:\n|$|[:.])'
+    m = re.search(pattern, norm_text, re.IGNORECASE)
+    if m:
+        # Return position of the heading text itself, not the newline
+        heading_match = re.search(escaped, norm_text[m.start():m.end()], re.IGNORECASE)
+        if heading_match:
+            return m.start() + heading_match.start()
+        return m.start()
+
+    # For well-known section types, try common heading variants
+    _HEADING_VARIANTS = {
+        "abstract": [r"abstract"],
+        "references": [r"references", r"bibliography", r"works\s+cited", r"literature\s+cited"],
+        "appendix": [r"appendi(?:x|ces)", r"online\s+appendix", r"supplementary\s+materials?",
+                      r"internet\s+appendix"],
+        "footnotes": [r"notes", r"endnotes", r"footnotes"],
+    }
+
+    variants = _HEADING_VARIANTS.get(sec_type, [])
+    for variant in variants:
+        pattern = r'(?:^|\n)\s*' + variant + r'\s*(?:\n|$|[:.])'
+        m = re.search(pattern, norm_text, re.IGNORECASE)
+        if m:
+            content_match = re.search(variant, norm_text[m.start():m.end()], re.IGNORECASE)
+            if content_match:
+                return m.start() + content_match.start()
             return m.start()
 
     return -1
@@ -155,8 +257,12 @@ def analyze_manuscript(raw_text: str, api_key: str) -> dict:
     boundaries = []
     for sec in sections:
         marker = sec.get("start_marker", "")
+        heading = sec.get("heading", "")
         sec_type = sec.get("type", "")
         pos = _find_marker(text, marker)
+        # Fallback: search for the section heading itself
+        if pos < 0:
+            pos = _find_heading(text, heading, sec_type)
         if pos >= 0:
             boundaries.append((pos, sec_type))
 
