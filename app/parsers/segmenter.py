@@ -19,6 +19,8 @@ _BODY_START_PATTERNS = [
     r"(?:1[\.\)]?\s+)?background\b",
     r"(?:1[\.\)]?\s+)?motivation\b",
     r"(?:1[\.\)]?\s+)?overview\b",
+    r"1[\.\)]\s+[A-Z]",          # "1. Any Section Title" or "1) Any..."
+    r"I[\.\)]\s+[A-Z]",          # "I. Any Section Title"
 ]
 _BODY_START = re.compile(
     r"(?:^|\n)\s*(?:" + "|".join(_BODY_START_PATTERNS) + r")",
@@ -52,7 +54,7 @@ def _wc(text: str) -> int:
     return len(text.split())
 
 
-def segment_text(full_text: str) -> SectionWordCounts:
+def segment_text(full_text: str, abstract_word_count: int | None = None) -> SectionWordCounts:
     """Segment manuscript text into sections and return word counts.
 
     The segmentation finds approximate boundaries for:
@@ -63,7 +65,9 @@ def segment_text(full_text: str) -> SectionWordCounts:
     - footnotes: any notes/endnotes section (between body and references)
     - appendix: anything after references / appendix heading
 
-    This is heuristic-based and works best with well-structured manuscripts.
+    If abstract_word_count is provided (from the parser's more accurate
+    extraction), it is used to find the abstract boundary instead of
+    heuristic heading detection.
     """
     text = full_text
     text_lower = text.lower()
@@ -117,12 +121,33 @@ def segment_text(full_text: str) -> SectionWordCounts:
             heading_end = abstract_pos + 10
         abstract_text_start = heading_end
 
-        # Abstract ends at body start, or we need to estimate
-        if body_pos is not None and body_pos > abstract_pos:
+        # Strategy 1: If we have a reliable abstract word count from the parser,
+        # use it to find the boundary by counting words forward
+        if abstract_word_count and abstract_word_count > 0:
+            words_seen = 0
+            # Walk character by character from abstract_text_start, counting words
+            in_word = False
+            for i in range(abstract_text_start, min(abstract_text_start + 8000, length)):
+                c = text[i]
+                if c.isspace():
+                    if in_word:
+                        words_seen += 1
+                        if words_seen >= abstract_word_count:
+                            # Find the end of the current line/paragraph
+                            nl = text.find("\n", i)
+                            abstract_end = nl if nl > 0 else i
+                            break
+                    in_word = False
+                else:
+                    in_word = True
+
+        # Strategy 2: Use body start heading if found
+        if abstract_end is None and body_pos is not None and body_pos > abstract_pos:
             abstract_end = body_pos
-        else:
-            # No clear body start found — look for double newline or next section
-            # Try to find end by double newline within first 3000 chars after abstract
+
+        # Strategy 3: Heuristic fallback
+        if abstract_end is None:
+            # Try double newline within first 3000 chars after abstract
             search_region = text[abstract_text_start:abstract_text_start + 4000]
             double_nl = search_region.find("\n\n")
             if double_nl > 0:
@@ -131,8 +156,7 @@ def segment_text(full_text: str) -> SectionWordCounts:
                 if 20 <= wc <= 500:
                     abstract_end = abstract_text_start + double_nl
             if abstract_end is None:
-                # Fallback: use body_pos or next known section
-                for pos in [body_pos, notes_pos, references_pos, appendix_pos]:
+                for pos in [notes_pos, references_pos, appendix_pos]:
                     if pos is not None and pos > abstract_pos:
                         abstract_end = pos
                         break

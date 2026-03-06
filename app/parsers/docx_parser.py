@@ -160,7 +160,7 @@ def parse_docx(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
     page_count = max(1, word_count // 250) if word_count else None
 
     # Section word counts
-    section_word_counts = segment_text(full_text)
+    section_word_counts = segment_text(full_text, abstract_word_count=abstract_word_count)
 
     return ManuscriptMetadata(
         filename=filename,

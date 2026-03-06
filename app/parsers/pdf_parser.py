@@ -264,12 +264,6 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
                     if match and 0 < match.start() < abs_end:
                         abs_end = match.start()
 
-                # Also check for footnote markers
-                for fn_marker in ["\n*", "\n†", "\n‡", "\n∗"]:
-                    idx = abs_text_after.find(fn_marker)
-                    if 0 < idx < abs_end:
-                        abs_end = idx
-
                 # Double newline can indicate end of abstract
                 double_nl = abs_text_after.find("\n\n")
                 if double_nl > 0:
@@ -277,6 +271,16 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
                     candidate_wc = len(abs_text_after[:double_nl].split())
                     if 30 <= candidate_wc <= 400 and double_nl < abs_end:
                         abs_end = double_nl
+
+                # Check for footnote markers — but only cut if the abstract
+                # already has a reasonable length (avoids truncating when the
+                # footnote symbol appears close to the end of the abstract)
+                for fn_marker in ["\n*", "\n†", "\n‡", "\n∗"]:
+                    idx = abs_text_after.find(fn_marker)
+                    if 0 < idx < abs_end:
+                        candidate_wc = len(abs_text_after[:idx].split())
+                        if candidate_wc >= 30:
+                            abs_end = idx
 
                 abstract_text = abs_text_after[:abs_end].strip()
                 abstract_words = abstract_text.split()
@@ -312,7 +316,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
             break
 
     # Section word counts
-    section_word_counts = segment_text(full_text)
+    section_word_counts = segment_text(full_text, abstract_word_count=abstract_word_count)
 
     pdf.close()
 

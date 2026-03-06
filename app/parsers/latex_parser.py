@@ -103,7 +103,7 @@ def parse_latex(file_bytes: bytes, filename: str) -> ManuscriptMetadata:
         detected_sections.append("References")
 
     # Section word counts
-    section_word_counts = segment_text(body_text)
+    section_word_counts = segment_text(body_text, abstract_word_count=abstract_word_count)
 
     return ManuscriptMetadata(
         filename=filename,
