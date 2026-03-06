@@ -14,6 +14,7 @@ from .parsers.pdf_parser import parse_pdf
 from .parsers.docx_parser import parse_docx
 from .parsers.latex_parser import parse_latex
 from .journal_presets import get_presets_list, get_preset_rules
+from .manuscript_analyzer import analyze_manuscript, apply_llm_analysis
 
 app = FastAPI(title="Manuscript Journal Validator")
 
@@ -64,6 +65,7 @@ async def api_check(
     file: UploadFile = File(...),
     rules: str = Form(...),
     word_count_includes: str = Form(""),
+    api_key: str = Form(""),
 ):
     """Parse an uploaded manuscript and check it against rules."""
     # Parse rules JSON
@@ -81,7 +83,7 @@ async def api_check(
     filename = file.filename or "unknown"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    # Parse based on file type
+    # Parse based on file type (binary-level extraction: fonts, spacing, page count)
     try:
         if ext == "pdf":
             metadata = parse_pdf(file_bytes, filename)
@@ -96,9 +98,23 @@ async def api_check(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse manuscript: {e}")
 
+    # LLM analysis: when API key is provided, use Claude for precise text-level analysis
+    llm_error = None
+    if api_key.strip() and metadata.raw_text:
+        try:
+            analysis = analyze_manuscript(metadata.raw_text, api_key.strip())
+            metadata = apply_llm_analysis(metadata, analysis)
+        except Exception as e:
+            llm_error = str(e)
+
     # Run checks
     result = check_manuscript(journal_rules, metadata, word_count_includes=includes)
-    return result.model_dump()
+
+    resp = result.model_dump()
+    resp["llm_analyzed"] = metadata.llm_analyzed
+    if llm_error:
+        resp["llm_error"] = llm_error
+    return resp
 
 
 @app.post("/api/debug-parse")

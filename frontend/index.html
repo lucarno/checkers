@@ -802,13 +802,16 @@
                 </div>
             </div>
 
+            <!-- API Key (always visible) -->
+            <div class="card" id="apiKeyCard">
+                <div class="card-label">Anthropic API Key</div>
+                <input type="password" id="apiKey" placeholder="sk-ant-...">
+                <p class="help-text">Optional. Enables precise LLM-based manuscript analysis (section word counts, citation style, structural checks). Required for custom journal guidelines. Not stored.</p>
+            </div>
+
             <!-- Custom guidelines (only visible when "Other" is selected) -->
             <div id="customGuidelinesCard" class="card hidden">
-                <div class="card-label">API Key</div>
-                <input type="password" id="apiKey" placeholder="sk-ant-...">
-                <p class="help-text">Required for extracting rules from custom guidelines. Not stored.</p>
-
-                <div style="margin-top: 18px;">
+                <div>
                     <div class="card-label">Guidelines Source</div>
                     <div class="toggle-group">
                         <button onclick="setGuidelinesMode('url')" id="modeUrlBtn" class="toggle-btn active">From URL</button>
@@ -1145,7 +1148,8 @@
         async function checkManuscript() {
             if (!extractedRules || !selectedFile) return;
 
-            showLoading('Analyzing manuscript\u2026');
+            const apiKey = document.getElementById('apiKey').value.trim();
+            showLoading(apiKey ? 'Analyzing manuscript with LLM\u2026' : 'Analyzing manuscript\u2026');
             document.getElementById('checkBtn').disabled = true;
 
             try {
@@ -1153,6 +1157,9 @@
                 formData.append('file', selectedFile);
                 formData.append('rules', JSON.stringify(extractedRules));
                 formData.append('word_count_includes', getWordCountIncludes().join(','));
+                if (apiKey) {
+                    formData.append('api_key', apiKey);
+                }
 
                 const resp = await fetch('/api/check', {
                     method: 'POST',
@@ -1176,11 +1183,18 @@
             resultsDiv.classList.add('visible');
 
             const summary = document.getElementById('summary');
+            let llmBadge = '';
+            if (result.llm_analyzed) {
+                llmBadge = '<div class="summary-stat" style="margin-left:auto;font-size:0.7rem;color:var(--green);font-weight:600">LLM-analyzed</div>';
+            } else if (result.llm_error) {
+                llmBadge = `<div class="summary-stat" style="margin-left:auto;font-size:0.7rem;color:var(--orange);font-weight:600" title="${result.llm_error}">LLM error (heuristic fallback)</div>`;
+            }
             summary.innerHTML = `
                 <div class="summary-stat"><div class="summary-dot pass"></div>${result.passed} passed</div>
                 <div class="summary-stat"><div class="summary-dot fail"></div>${result.failed} failed</div>
                 <div class="summary-stat"><div class="summary-dot warning"></div>${result.warnings} warnings</div>
                 <div class="summary-stat"><div class="summary-dot skipped"></div>${result.skipped} skipped</div>
+                ${llmBadge}
             `;
 
             const list = document.getElementById('checksList');

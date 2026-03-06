@@ -72,6 +72,12 @@ class ManuscriptMetadata(BaseModel):
     title: Optional[str] = None
     section_word_counts: Optional[SectionWordCounts] = None
     raw_text: Optional[str] = Field(None, exclude=True)
+    # LLM analysis fields (populated only when API key is provided)
+    llm_citation_style: Optional[str] = None
+    llm_citation_style_details: Optional[str] = None
+    llm_acknowledgment_location: Optional[str] = None
+    llm_structural_issues: list[str] = Field(default_factory=list)
+    llm_analyzed: bool = False
 
 
 class CheckStatus(str, Enum):

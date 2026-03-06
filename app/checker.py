@@ -341,31 +341,61 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
             ))
 
     # Citation style check
-    if rules.citation_style and rules.citation_style.value not in ("Unknown", "Other") and metadata.raw_text:
-        detected_style = _detect_citation_style(metadata.raw_text)
+    if rules.citation_style and rules.citation_style.value not in ("Unknown", "Other"):
         required = rules.citation_style.value
-        if detected_style:
+
+        # Prefer LLM-detected citation style if available
+        if metadata.llm_analyzed and metadata.llm_citation_style:
+            detected_style = metadata.llm_citation_style
+            details_note = metadata.llm_citation_style_details or ""
             if detected_style.lower() == required.lower():
                 checks.append(CheckItem(
                     name="Citation Style",
                     status=CheckStatus.PASS,
                     message=f"Citation style detected as {detected_style}, matching required {required}.",
+                    details=details_note if details_note else None,
+                ))
+            elif detected_style in ("Unknown", "Other"):
+                checks.append(CheckItem(
+                    name="Citation Style",
+                    status=CheckStatus.WARNING,
+                    message=f"Could not confidently determine citation style. Required: {required}.",
+                    details=details_note if details_note else None,
                 ))
             else:
                 checks.append(CheckItem(
                     name="Citation Style",
                     status=CheckStatus.WARNING,
                     message=f"Citation style detected as {detected_style}, but journal requires {required}.",
-                    details=f"Detected {detected_style}-style patterns in citations and reference list. "
-                            f"If the journal uses a variant of {required} (e.g., APSA or AEA style based on {required}), "
-                            f"this may still be correct — verify against the journal's style guide.",
+                    details=details_note or (
+                        f"If the journal uses a variant of {required} (e.g., APSA or AEA style), "
+                        f"this may still be correct — verify against the journal's style guide."
+                    ),
                 ))
-        else:
-            checks.append(CheckItem(
-                name="Citation Style",
-                status=CheckStatus.SKIPPED,
-                message=f"Could not detect citation style from manuscript text. Required: {required}.",
-            ))
+        elif metadata.raw_text:
+            detected_style = _detect_citation_style(metadata.raw_text)
+            if detected_style:
+                if detected_style.lower() == required.lower():
+                    checks.append(CheckItem(
+                        name="Citation Style",
+                        status=CheckStatus.PASS,
+                        message=f"Citation style detected as {detected_style}, matching required {required}.",
+                    ))
+                else:
+                    checks.append(CheckItem(
+                        name="Citation Style",
+                        status=CheckStatus.WARNING,
+                        message=f"Citation style detected as {detected_style}, but journal requires {required}.",
+                        details=f"Detected {detected_style}-style patterns in citations and reference list. "
+                                f"If the journal uses a variant of {required} (e.g., APSA or AEA style based on {required}), "
+                                f"this may still be correct — verify against the journal's style guide.",
+                    ))
+            else:
+                checks.append(CheckItem(
+                    name="Citation Style",
+                    status=CheckStatus.SKIPPED,
+                    message=f"Could not detect citation style from manuscript text. Required: {required}.",
+                ))
 
     # References check
     checks.append(CheckItem(
@@ -384,50 +414,75 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
             ack_after_refs = "acknowledgment" in notes_text and "after reference" in notes_text
             ack_not_footnote = "not as a numbered note" in notes_text or "not as a footnote" in notes_text
             if ack_after_refs or ack_not_footnote:
-                # Find positions of acknowledgments heading and references in manuscript
-                ack_heading_pos = max(text_lower.rfind("acknowledgments"), text_lower.rfind("acknowledgements"),
-                                      text_lower.rfind("acknowledgment"), text_lower.rfind("acknowledgement"))
-                ref_pos = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
-                has_ack_section = ack_heading_pos > 0
-
-                # Also detect footnote-style acknowledgments: "*We thank...", "†We thank...",
-                # or numbered footnote like "1We thank...", "1. We thank..."
-                # Common patterns: "we thank", "we are grateful", "we acknowledge",
-                # "the author(s) thank", "i thank", "i am grateful"
-                footnote_ack = re.search(
-                    r"(?:^|\n)\s*(?:[*†‡§¶\d]+\.?\s*)"
-                    r"(?:we\s+(?:thank|acknowledge|are\s+grateful|are\s+indebted)|"
-                    r"(?:the\s+)?authors?\s+(?:thank|acknowledge|are?\s+grateful)|"
-                    r"i\s+(?:thank|acknowledge|am\s+grateful))",
-                    text_lower
-                )
-
-                if has_ack_section and ref_pos > 0:
-                    if ack_heading_pos > ref_pos:
+                # Use LLM analysis if available
+                if metadata.llm_analyzed and metadata.llm_acknowledgment_location:
+                    loc = metadata.llm_acknowledgment_location
+                    if loc == "after_references":
                         checks.append(CheckItem(
                             name="Acknowledgment Placement",
                             status=CheckStatus.PASS,
                             message="Acknowledgments section appears after references.",
                         ))
-                    else:
+                    elif loc == "footnote":
                         checks.append(CheckItem(
                             name="Acknowledgment Placement",
                             status=CheckStatus.WARNING,
-                            message="Acknowledgments appear before references. This journal requires acknowledgments after the reference list, not as a numbered note.",
+                            message="Acknowledgments appear to be in a footnote. "
+                                    "This journal requires acknowledgments as a separate section after the reference list, not as a numbered note.",
                         ))
-                elif footnote_ack:
-                    checks.append(CheckItem(
-                        name="Acknowledgment Placement",
-                        status=CheckStatus.WARNING,
-                        message="Acknowledgments appear to be in a footnote (e.g., '*We thank...'). "
-                                "This journal requires acknowledgments as a separate section at the end of the manuscript after the reference list, not as a numbered note.",
-                    ))
-                elif not has_ack_section:
-                    checks.append(CheckItem(
-                        name="Acknowledgment Placement",
-                        status=CheckStatus.WARNING,
-                        message="No acknowledgments section detected. This journal expects acknowledgments at the end of the manuscript after the reference list.",
-                    ))
+                    elif loc == "before_references":
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.WARNING,
+                            message="Acknowledgments appear before references. This journal requires acknowledgments after the reference list.",
+                        ))
+                    elif loc == "not_found":
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.WARNING,
+                            message="No acknowledgments section detected. This journal expects acknowledgments at the end of the manuscript after the reference list.",
+                        ))
+                else:
+                    # Heuristic fallback
+                    ack_heading_pos = max(text_lower.rfind("acknowledgments"), text_lower.rfind("acknowledgements"),
+                                          text_lower.rfind("acknowledgment"), text_lower.rfind("acknowledgement"))
+                    ref_pos = max(text_lower.rfind("references"), text_lower.rfind("bibliography"))
+                    has_ack_section = ack_heading_pos > 0
+
+                    footnote_ack = re.search(
+                        r"(?:^|\n)\s*(?:[*†‡§¶\d]+\.?\s*)"
+                        r"(?:we\s+(?:thank|acknowledge|are\s+grateful|are\s+indebted)|"
+                        r"(?:the\s+)?authors?\s+(?:thank|acknowledge|are?\s+grateful)|"
+                        r"i\s+(?:thank|acknowledge|am\s+grateful))",
+                        text_lower
+                    )
+
+                    if has_ack_section and ref_pos > 0:
+                        if ack_heading_pos > ref_pos:
+                            checks.append(CheckItem(
+                                name="Acknowledgment Placement",
+                                status=CheckStatus.PASS,
+                                message="Acknowledgments section appears after references.",
+                            ))
+                        else:
+                            checks.append(CheckItem(
+                                name="Acknowledgment Placement",
+                                status=CheckStatus.WARNING,
+                                message="Acknowledgments appear before references. This journal requires acknowledgments after the reference list, not as a numbered note.",
+                            ))
+                    elif footnote_ack:
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.WARNING,
+                            message="Acknowledgments appear to be in a footnote (e.g., '*We thank...'). "
+                                    "This journal requires acknowledgments as a separate section at the end of the manuscript after the reference list, not as a numbered note.",
+                        ))
+                    elif not has_ack_section:
+                        checks.append(CheckItem(
+                            name="Acknowledgment Placement",
+                            status=CheckStatus.WARNING,
+                            message="No acknowledgments section detected. This journal expects acknowledgments at the end of the manuscript after the reference list.",
+                        ))
 
         # Footnotes vs endnotes check
         if "endnotes" in notes_text or "footnotes" in notes_text:
@@ -462,6 +517,15 @@ def check_manuscript(rules: JournalRules, metadata: ManuscriptMetadata,
                     status=CheckStatus.WARNING,
                     message="Word count not found on the title page. This journal requires the word count to appear on the front page.",
                 ))
+
+    # LLM-detected structural issues
+    if metadata.llm_analyzed and metadata.llm_structural_issues:
+        for issue in metadata.llm_structural_issues:
+            checks.append(CheckItem(
+                name="Structural Issue",
+                status=CheckStatus.WARNING,
+                message=issue,
+            ))
 
     # Compute summary
     passed = sum(1 for c in checks if c.status == CheckStatus.PASS)
