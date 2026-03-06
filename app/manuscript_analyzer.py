@@ -1,9 +1,9 @@
 """LLM-based manuscript analysis for precise text-level metadata extraction.
 
-When an Anthropic API key is provided, this module sends the manuscript's
-extracted text to Claude for accurate section segmentation, abstract word
-counting, citation style detection, and structural analysis — replacing
-the heuristic approaches in the parsers and checker.
+Hybrid approach: the LLM identifies section boundaries by quoting the exact
+text at each boundary. Python then locates those strings in the manuscript
+and counts words programmatically — giving exact counts rather than LLM
+estimates.
 """
 
 import json
@@ -13,49 +13,51 @@ import anthropic
 
 from .models import ManuscriptMetadata, SectionWordCounts
 
-ANALYSIS_PROMPT = """You are an expert academic manuscript analyst. Given the full text of a scholarly manuscript, extract precise structured metadata.
+ANALYSIS_PROMPT = """You are an expert academic manuscript analyst. Given the full text of a scholarly manuscript, identify the exact boundaries between sections.
 
-Carefully read the manuscript text and return ONLY a valid JSON object with these fields:
+Return ONLY a valid JSON object with these fields:
 
 {{
-  "sections_found": ["list of section headings found, in order"],
-  "section_word_counts": {{
-    "title_page": <int, words before the abstract (title, authors, affiliations, etc.)>,
-    "abstract": <int, words in the abstract section only>,
-    "body": <int, words from first body section (e.g. Introduction) through the last body section (e.g. Conclusion), including any in-text footnotes>,
-    "footnotes": <int, words in a dedicated notes/endnotes section if separate from body, 0 if footnotes are inline>,
-    "references": <int, words in the reference/bibliography list>,
-    "appendix": <int, words in appendix/appendices sections>
-  }},
-  "abstract_word_count": <int, exact word count of the abstract text>,
+  "title": <string or null, the manuscript title>,
+  "sections": [
+    {{
+      "type": <string, one of: "title_page", "abstract", "body", "footnotes", "references", "appendix">,
+      "heading": <string, the section heading as it appears in the text, e.g. "Abstract", "1. Introduction", "References">,
+      "start_marker": <string, the EXACT first 8-12 words of this section (including the heading itself). Must be a verbatim quote from the manuscript that can be found with a text search.>
+    }}
+  ],
+  "abstract_start_marker": <string or null, the EXACT first 8-12 words of the abstract TEXT (after the "Abstract" heading). Verbatim quote.>,
+  "abstract_end_marker": <string or null, the EXACT first 8-12 words of whatever comes right after the abstract (e.g. "1. Introduction", "Keywords:", "JEL codes"). Verbatim quote.>,
   "has_abstract": <boolean>,
   "has_references": <boolean>,
   "citation_style": <string, one of: "APA", "Chicago", "Harvard", "Vancouver", "Numbered", "MLA", "Other", "Unknown">,
   "citation_style_details": <string, brief explanation of why you identified this style>,
   "contains_author_info": <boolean, whether author names, affiliations, or emails are present>,
-  "title": <string or null, the manuscript title>,
   "has_figures": <boolean>,
-  "figure_count": <int, number of figures referenced>,
+  "figure_count": <int, number of distinct figures referenced (Figure 1, Figure 2, etc.)>,
   "acknowledgment_location": <string, one of: "after_references", "before_references", "footnote", "not_found">,
-  "structural_issues": [<list of strings describing any structural problems, e.g. "Acknowledgments appear as a footnote rather than a section">]
+  "structural_issues": [<list of strings describing any structural problems>]
 }}
 
-Rules for counting:
-- Count words by splitting on whitespace. Hyphenated words count as one word.
-- "title_page" includes everything before the abstract (or before the first body section if no abstract).
-- "abstract" is ONLY the abstract paragraph(s), not including the heading "Abstract" itself.
-- "body" starts at the first body section (usually Introduction) and ends at the last body section (usually Conclusion/Discussion), including section headings.
-- "footnotes" counts words in a dedicated Notes/Endnotes section ONLY. If footnotes are inline (at bottom of pages), count them as 0 here — they'll be part of body text.
-- "references" counts all words in the References/Bibliography section.
-- "appendix" counts everything in Appendix/Appendices sections.
-- All section counts should sum approximately to the total manuscript word count.
+CRITICAL rules for sections:
+- List sections in the ORDER they appear in the manuscript.
+- "title_page": everything before the abstract (title, authors, affiliations). Always include this as the first section.
+- "abstract": the abstract section. The start_marker should include the word "Abstract" or equivalent heading.
+- "body": starts at the first substantive section after abstract (e.g. "Introduction", "1. Background"). If the body has multiple sections (Introduction, Methods, Results, etc.), combine them ALL into ONE "body" entry — use the start of the FIRST body section as the start_marker.
+- "footnotes": a dedicated Notes/Endnotes section (NOT inline footnotes). Only include if there's a separate section with a heading like "Notes" or "Endnotes".
+- "references": the reference/bibliography list.
+- "appendix": appendix/appendices sections.
+- Each start_marker MUST be an exact verbatim quote (8-12 words) that appears in the manuscript text. Copy it character-for-character.
+- Do NOT include sections that don't exist in the manuscript.
+
+For abstract_start_marker: quote the first 8-12 words of the abstract CONTENT (the actual text, not the heading). For abstract_end_marker: quote the first 8-12 words of whatever section follows the abstract.
 
 For citation_style:
-- APA: (Author, Year) with comma before year; references as Author, A. B. (Year). Title.
-- Chicago: (Author Year) without comma; or footnote-based citations with ibid/op. cit.
-- Harvard: (Author Year) or (Author Year: page); varies by institution.
-- Vancouver/Numbered: [1] or superscript numbers; numbered reference list.
-- If it's a specific sub-style (e.g., APSA, AEA), still classify under the parent (Chicago, APA, etc.) but note it in citation_style_details.
+- APA: (Author, Year) with comma before year
+- Chicago: (Author Year) without comma; or footnote-based citations
+- Harvard: (Author Year) or (Author Year: page)
+- Vancouver/Numbered: [1] or superscript numbers
+- If it's a sub-style (APSA, AEA), classify under the parent but note it in details.
 
 Manuscript text:
 ---
@@ -65,12 +67,59 @@ Manuscript text:
 Return ONLY the JSON object."""
 
 
-def analyze_manuscript(raw_text: str, api_key: str) -> dict:
-    """Send manuscript text to Claude for precise analysis.
+def _find_marker(text: str, marker: str) -> int:
+    """Find the position of a marker string in the text.
 
-    Returns a dict with LLM-extracted metadata fields.
+    Tries exact match first, then progressively looser matching.
+    Returns -1 if not found.
     """
-    # Truncate very long texts to stay within token limits (~100k chars ≈ 25k tokens)
+    if not marker:
+        return -1
+
+    # Exact match
+    pos = text.find(marker)
+    if pos >= 0:
+        return pos
+
+    # Normalize whitespace and try again
+    normalized_marker = re.sub(r'\s+', ' ', marker.strip())
+    # Build a regex that treats any whitespace in the marker as flexible whitespace
+    pattern = re.sub(r'\s+', r'\\s+', re.escape(normalized_marker))
+    m = re.search(pattern, text, re.IGNORECASE)
+    if m:
+        return m.start()
+
+    # Try with just the first 6 words (in case the LLM slightly misquoted the end)
+    words = normalized_marker.split()
+    if len(words) > 6:
+        short_marker = ' '.join(words[:6])
+        pattern = re.sub(r'\s+', r'\\s+', re.escape(short_marker))
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return m.start()
+
+    # Try first 4 words
+    if len(words) > 4:
+        short_marker = ' '.join(words[:4])
+        pattern = re.sub(r'\s+', r'\\s+', re.escape(short_marker))
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return m.start()
+
+    return -1
+
+
+def _wc(text: str) -> int:
+    """Count words in a text string."""
+    return len(text.split())
+
+
+def analyze_manuscript(raw_text: str, api_key: str) -> dict:
+    """Send manuscript text to Claude for boundary detection, then count words.
+
+    Returns a dict with LLM-extracted metadata and programmatic word counts.
+    """
+    # Truncate very long texts to stay within token limits
     text_to_send = raw_text[:100000] if len(raw_text) > 100000 else raw_text
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -96,7 +145,89 @@ def analyze_manuscript(raw_text: str, api_key: str) -> dict:
     if match:
         response_text = response_text[match.start():]
 
-    return json.loads(response_text)
+    analysis = json.loads(response_text)
+
+    # === Hybrid step: use LLM boundaries to count words programmatically ===
+    sections = analysis.get("sections", [])
+    text = raw_text
+
+    # Build ordered list of (position, section_type) from markers
+    boundaries = []
+    for sec in sections:
+        marker = sec.get("start_marker", "")
+        sec_type = sec.get("type", "")
+        pos = _find_marker(text, marker)
+        if pos >= 0:
+            boundaries.append((pos, sec_type))
+
+    # Sort by position
+    boundaries.sort(key=lambda x: x[0])
+
+    # Compute word counts from boundaries
+    section_texts = {
+        "title_page": "",
+        "abstract": "",
+        "body": "",
+        "footnotes": "",
+        "references": "",
+        "appendix": "",
+    }
+
+    for i, (pos, sec_type) in enumerate(boundaries):
+        end_pos = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(text)
+        chunk = text[pos:end_pos]
+        if sec_type in section_texts:
+            section_texts[sec_type] += chunk
+
+    # If no title_page boundary was found but we have other boundaries,
+    # everything before the first boundary is title_page
+    if boundaries and (not boundaries[0][1] == "title_page" or boundaries[0][0] > 0):
+        first_pos = boundaries[0][0]
+        if first_pos > 0:
+            existing_tp = section_texts["title_page"]
+            section_texts["title_page"] = text[:first_pos] + existing_tp
+
+    # Count words per section
+    swc = {}
+    for key, sec_text in section_texts.items():
+        swc[key] = _wc(sec_text)
+
+    analysis["section_word_counts"] = swc
+
+    # === Abstract word count: use specific abstract markers ===
+    abs_start_marker = analysis.get("abstract_start_marker")
+    abs_end_marker = analysis.get("abstract_end_marker")
+
+    if abs_start_marker:
+        abs_start = _find_marker(text, abs_start_marker)
+        if abs_start >= 0:
+            abs_end = len(text)
+            if abs_end_marker:
+                end_pos = _find_marker(text, abs_end_marker)
+                if end_pos > abs_start:
+                    abs_end = end_pos
+            elif "abstract" in section_texts and section_texts["abstract"]:
+                # Fall back to the section boundary
+                for i, (pos, sec_type) in enumerate(boundaries):
+                    if sec_type == "abstract" and i + 1 < len(boundaries):
+                        abs_end = boundaries[i + 1][0]
+                        break
+
+            abstract_text = text[abs_start:abs_end].strip()
+            analysis["abstract_word_count"] = _wc(abstract_text)
+        else:
+            # Fallback: use the abstract section text
+            analysis["abstract_word_count"] = swc.get("abstract", 0)
+    else:
+        analysis["abstract_word_count"] = swc.get("abstract", 0)
+
+    # Sections found (from the LLM)
+    analysis["sections_found"] = [
+        sec.get("heading", sec.get("type", ""))
+        for sec in sections
+    ]
+
+    return analysis
 
 
 def apply_llm_analysis(metadata: ManuscriptMetadata, analysis: dict) -> ManuscriptMetadata:
@@ -106,7 +237,7 @@ def apply_llm_analysis(metadata: ManuscriptMetadata, analysis: dict) -> Manuscri
     line_spacing, page_count) are kept from the parser since those come from
     the file format itself.
     """
-    # Section word counts
+    # Section word counts (now computed programmatically from LLM boundaries)
     swc_data = analysis.get("section_word_counts", {})
     if swc_data:
         swc = SectionWordCounts(
