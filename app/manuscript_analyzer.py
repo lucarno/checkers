@@ -211,6 +211,68 @@ def _find_heading(text: str, heading: str, sec_type: str) -> int:
     return -1
 
 
+def _find_body_after_abstract(text: str, abstract_pos: int) -> int:
+    """Find where the body text starts after the abstract.
+
+    Scans from the abstract position forward, looking for the end of the
+    abstract and the start of body text. Handles papers with and without
+    explicit body headings (e.g., "Introduction").
+    """
+    # Skip the abstract heading line
+    heading_end = text.find("\n", abstract_pos + 1)
+    if heading_end < 0:
+        return -1
+    search_start = heading_end + 1
+
+    # Look within a reasonable range (abstracts are typically < 3000 chars)
+    search_region = text[search_start:search_start + 8000]
+
+    # Strategy 1: Look for a section heading (Introduction, 1., etc.)
+    body_patterns = [
+        r"(?:^|\n)\s*(?:1[\.\)]?\s+)?introduction\b",
+        r"(?:^|\n)\s*i[\.\)]\s+introduction\b",
+        r"(?:^|\n)\s*(?:1[\.\)]?\s+)?background\b",
+        r"(?:^|\n)\s*(?:1[\.\)]?\s+)?motivation\b",
+        r"(?:^|\n)\s*1[\.\)]\s+[A-Z]",
+        r"(?:^|\n)\s*I[\.\)]\s+[A-Z]",
+    ]
+    for pattern in body_patterns:
+        m = re.search(pattern, search_region, re.IGNORECASE)
+        if m:
+            # Return position in original text
+            actual_pos = search_start + m.start()
+            # Skip the leading newline
+            if text[actual_pos] == "\n":
+                actual_pos += 1
+            return actual_pos
+
+    # Strategy 2: Find transition markers between abstract and body.
+    # Papers may have: abstract → footnote(s) → keywords/JEL → body
+    # We need to skip past all of these to find the actual body paragraph.
+
+    # Find all transition points: footnotes, keywords, JEL codes.
+    # Match until sentence end (period/closing paren + newline + capital letter).
+    transition_end = 0
+    for pattern in [
+        r"\n[∗\*†‡§¶].*?[.\)]\n(?=[A-Z])",   # footnote paragraph(s)
+        r"\nKeywords?\s*:.*?[.\)]\n(?=[A-Z])", # keywords
+        r"\nJEL\s+.*?[.\)]\n(?=[A-Z])",       # JEL codes
+    ]:
+        m = re.search(pattern, search_region, re.DOTALL)
+        if m and m.end() > transition_end:
+            transition_end = m.end()
+
+    if transition_end > 0:
+        return search_start + transition_end
+
+    # Fallback: look for double newline followed by capitalized text
+    m = re.search(r"\n\n([A-Z][a-z])", search_region)
+    if m:
+        return search_start + m.start() + 2  # skip the double newline
+
+    return -1
+
+
 def _wc(text: str) -> int:
     """Count words in a text string."""
     return len(text.split())
@@ -269,6 +331,27 @@ def analyze_manuscript(raw_text: str, api_key: str) -> dict:
     # Sort by position
     boundaries.sort(key=lambda x: x[0])
 
+    # Fill gaps: if critical sections are missing, infer their positions
+    found_types = {sec_type for _, sec_type in boundaries}
+
+    if "body" not in found_types and "abstract" in found_types:
+        # Body is missing but abstract exists — infer body start from abstract end.
+        # Find abstract's position in boundaries and look for the next boundary after it.
+        for i, (pos, sec_type) in enumerate(boundaries):
+            if sec_type == "abstract":
+                abs_start = pos
+                abs_end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(text)
+                # The body should start after the abstract. Look for the first
+                # substantial paragraph after the abstract heading (skip the heading
+                # line and abstract content, typically ~150-400 words).
+                # Use the abstract_end_marker if available, or search for a paragraph
+                # break followed by body-like text.
+                body_start = _find_body_after_abstract(text, abs_start)
+                if body_start > abs_start and body_start < abs_end:
+                    boundaries.append((body_start, "body"))
+                    boundaries.sort(key=lambda x: x[0])
+                break
+
     # Compute word counts from boundaries
     section_texts = {
         "title_page": "",
@@ -312,8 +395,8 @@ def analyze_manuscript(raw_text: str, api_key: str) -> dict:
                 end_pos = _find_marker(text, abs_end_marker)
                 if end_pos > abs_start:
                     abs_end = end_pos
-            elif "abstract" in section_texts and section_texts["abstract"]:
-                # Fall back to the section boundary
+            # Fall back to section boundary when abs_end_marker is missing or not found
+            if abs_end == len(text):
                 for i, (pos, sec_type) in enumerate(boundaries):
                     if sec_type == "abstract" and i + 1 < len(boundaries):
                         abs_end = boundaries[i + 1][0]
@@ -356,7 +439,20 @@ def apply_llm_analysis(metadata: ManuscriptMetadata, analysis: dict) -> Manuscri
         )
         swc.total = (swc.title_page + swc.abstract + swc.body +
                      swc.references + swc.footnotes + swc.appendix)
-        metadata.section_word_counts = swc
+
+        # Validate: don't override heuristic results if LLM boundaries are
+        # clearly broken (e.g., body=0 when heuristic found body, or abstract
+        # is implausibly large meaning body was missed)
+        heuristic = metadata.section_word_counts
+        llm_is_plausible = True
+        if heuristic and heuristic.body > 0:
+            if swc.body == 0:
+                llm_is_plausible = False
+            elif swc.abstract > 500 and heuristic.abstract <= 500:
+                llm_is_plausible = False
+
+        if llm_is_plausible:
+            metadata.section_word_counts = swc
 
     # Abstract
     if "has_abstract" in analysis:

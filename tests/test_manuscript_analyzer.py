@@ -8,10 +8,13 @@ import pytest
 from app.manuscript_analyzer import (
     _find_marker,
     _find_heading,
+    _find_body_after_abstract,
     _normalize_unicode,
     _wc,
     analyze_manuscript,
+    apply_llm_analysis,
 )
+from app.models import ManuscriptMetadata, SectionWordCounts
 
 
 # ── _normalize_unicode ──
@@ -381,3 +384,267 @@ class TestEdgeCases:
         text = "Title here\nAbstract: This paper examines"
         pos = _find_heading(text, "Abstract", "abstract")
         assert pos >= 0
+
+
+# ── Real-world PDF text scenarios ──
+
+# Simulates actual pdfplumber output: words joined without spaces, footnote
+# markers, page numbers, etc.
+REAL_PDF_TEXT = (
+    "The Autocracy Bandwagon:\nElectoral Institutions and Elite Selection in\n"
+    "\u2217\nAuthoritarian Regimes\nJohn Smith and Jane Doe\n"
+    "[Preliminary Draft. Please do not cite or circulate.]\n"
+    "Abstract\n"
+    "Thispaperexamineshowdemocraticpoliticianssurviveauthoritarianreversals\n"
+    "by securing regime trust. While research shows how authoritarian institutions\n"
+    "help dictators share power, we argue that these institutions also allow politi-\n"
+    "cianstocrediblyabandonoppositionalambitionsbypubliclyjoiningtheruling\n"
+    "party. Using individual-level data from a country's last elections before the\n"
+    "coup, and combining a difference-in-differences design with a regression\n"
+    "discontinuity approach, we show that left-wing incumbents were more likely\n"
+    "to join the ruling party.\n"
+    "\u2217We thank participants of APSA and EPSA for helpful feedback.\n"
+    "During democratic breakdowns, democratic politicians occupy a paradoxical po-\n"
+    "sition: they are democracy's strongest potential defenders yet also its most vulner-\n"
+    "able political actors. Their ability to mobilize voters and forge alliances makes\n"
+    "them central to efforts to resist authoritarian encroachment.\n"
+    "2 Background\n"
+    "We examine our argument in the context of a historical case. The country\n"
+    "experienced a right-wing military coup that transformed democracy into a\n"
+    "durable authoritarian regime lasting over two decades.\n"
+    "3 Data\n"
+    "We collected data from public archives covering all candidates. The dataset\n"
+    "includes individual-level information on party affiliation and vote shares.\n"
+    "4 Results\n"
+    "Our analysis shows a statistically significant positive effect. Left-wing\n"
+    "incumbents were more likely to join the ruling party than unelected leftists.\n"
+    "5 Conclusion\n"
+    "Political elites who oppose authoritarian leaders play a crucial role in shaping\n"
+    "regime consolidation. Yet those excluded from the dictator's initial coalition\n"
+    "often face a defining choice between resistance and accommodation.\n"
+    "25\n"
+    "References\n"
+    "Acemoglu, Daron and James A Robinson. 2005. Economic origins of dictatorship\n"
+    "and democracy. Cambridge University Press.\n"
+    "Smith, John. 2020. Authoritarian institutions and elite behavior. Journal of\n"
+    "Politics 82(3): 1045-1060.\n"
+    "30\n"
+    "A Summary table\n"
+    "Avg Median Min Max\n"
+    "Member Ruling Party 0.15 0.00 0.00 1.00\n"
+    "B Additional results\n"
+    "Table B1 shows additional regression results with alternative controls.\n"
+)
+
+
+class TestFindBodyAfterAbstract:
+    def test_body_after_footnote(self):
+        """Body starts after abstract footnote, not at the footnote itself."""
+        abs_pos = REAL_PDF_TEXT.index("Abstract")
+        body_pos = _find_body_after_abstract(REAL_PDF_TEXT, abs_pos)
+        assert body_pos > 0
+        # Should find "During democratic breakdowns", NOT "We thank participants"
+        assert REAL_PDF_TEXT[body_pos:body_pos+6] == "During", \
+            f"Expected 'During', got: {repr(REAL_PDF_TEXT[body_pos:body_pos+50])}"
+
+    def test_body_after_keywords(self):
+        """Body starts after keywords section."""
+        text = (
+            "Abstract\n"
+            "This paper studies X and Y.\n"
+            "Keywords: democracy, authoritarianism\n"
+            "JEL codes: D72, P16\n"
+            "Introduction to the study of X.\n"
+        )
+        body_pos = _find_body_after_abstract(text, 0)
+        assert body_pos > 0
+        assert "Introduction" in text[body_pos:body_pos+20]
+
+    def test_body_with_explicit_heading(self):
+        """Papers with '1. Introduction' heading should find it via strategy 1."""
+        text = (
+            "Abstract\n"
+            "This paper studies the effect of X on Y.\n"
+            "\n"
+            "1. Introduction\n"
+            "The study of X has a long history.\n"
+        )
+        body_pos = _find_body_after_abstract(text, 0)
+        assert body_pos > 0
+        assert "1." in text[body_pos:body_pos+5]
+
+    def test_no_body_found(self):
+        """Returns -1 when no body boundary can be detected."""
+        text = "Abstract\nThis is all there is."
+        assert _find_body_after_abstract(text, 0) == -1
+
+
+class TestRealPDFBoundaries:
+    """Integration tests using realistic PDF-extracted text."""
+
+    def _mock_and_run(self, sections, **extra):
+        analysis = {
+            "title": "The Autocracy Bandwagon",
+            "sections": sections,
+            "has_abstract": True,
+            "has_references": True,
+            "citation_style": "Chicago",
+            "citation_style_details": "Author-year without comma",
+            "contains_author_info": True,
+            "has_figures": False,
+            "figure_count": 0,
+            "acknowledgment_location": "footnote",
+            "structural_issues": [],
+            **extra,
+        }
+        with patch("app.manuscript_analyzer.anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_anthropic.Anthropic.return_value = mock_client
+            mock_client.messages.create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(analysis))]
+            )
+            return analyze_manuscript(REAL_PDF_TEXT, "fake-key")
+
+    def test_good_markers(self):
+        """LLM returns accurate markers — all sections detected."""
+        result = self._mock_and_run(
+            sections=[
+                {"type": "title_page", "heading": "Title", "start_marker": "The Autocracy Bandwagon Electoral Institutions and Elite Selection"},
+                {"type": "abstract", "heading": "Abstract", "start_marker": "Abstract This paper examines how democratic politicians survive"},
+                {"type": "body", "heading": "Body", "start_marker": "During democratic breakdowns, democratic politicians occupy a paradoxical"},
+                {"type": "references", "heading": "References", "start_marker": "References Acemoglu, Daron and James A Robinson. 2005"},
+                {"type": "appendix", "heading": "Appendix", "start_marker": "A Summary table Avg Median Min Max"},
+            ],
+            abstract_start_marker="This paper examines how democratic politicians survive",
+            abstract_end_marker="During democratic breakdowns, democratic politicians occupy",
+        )
+        swc = result["section_word_counts"]
+        assert swc["abstract"] > 0 and swc["abstract"] < 200
+        assert swc["body"] > 0
+        assert swc["references"] > 0
+        assert swc["appendix"] > 0
+        assert result["abstract_word_count"] < 200
+
+    def test_hallucinated_markers_body_not_found(self):
+        """LLM hallucinates '1. Introduction' but paper has no such heading.
+        Body should be inferred from abstract end."""
+        result = self._mock_and_run(
+            sections=[
+                {"type": "title_page", "heading": "Title", "start_marker": "The Autocracy Bandwagon Electoral Institutions"},
+                {"type": "abstract", "heading": "Abstract", "start_marker": "Abstract This paper examines how democratic politicians survive"},
+                {"type": "body", "heading": "Introduction", "start_marker": "1. Introduction During democratic breakdowns"},
+                {"type": "references", "heading": "References", "start_marker": "References 1. Acemoglu Daron and James Robinson"},
+                {"type": "appendix", "heading": "Appendix", "start_marker": "Appendix A Summary Statistics Table A1"},
+            ],
+            abstract_start_marker="This paper examines how democratic politicians survive",
+            abstract_end_marker="1. Introduction During democratic breakdowns",
+        )
+        swc = result["section_word_counts"]
+        # Abstract should NOT be thousands of words
+        assert swc["abstract"] < 300, f"Abstract too large: {swc['abstract']}"
+        # Body should be found via gap-filling
+        assert swc["body"] > 100, f"Body too small: {swc['body']}"
+        # References found via heading fallback
+        assert swc["references"] > 0
+        # Abstract word count should use section boundary fallback
+        assert result["abstract_word_count"] < 300
+
+    def test_all_markers_wrong(self):
+        """Every single marker is wrong — relies entirely on heading fallback + gap-fill."""
+        result = self._mock_and_run(
+            sections=[
+                {"type": "title_page", "heading": "Title", "start_marker": "WRONG WRONG WRONG"},
+                {"type": "abstract", "heading": "Abstract", "start_marker": "WRONG WRONG WRONG"},
+                {"type": "body", "heading": "Introduction", "start_marker": "WRONG WRONG WRONG"},
+                {"type": "references", "heading": "References", "start_marker": "WRONG WRONG WRONG"},
+            ],
+            abstract_start_marker="WRONG",
+            abstract_end_marker="WRONG",
+        )
+        swc = result["section_word_counts"]
+        # Abstract and References found via heading fallback
+        assert swc["abstract"] < 300
+        assert swc["references"] > 0
+        assert swc["body"] > 100
+
+    def test_joined_words_in_marker(self):
+        """LLM quotes text with spaces but PDF has joined words (no spaces)."""
+        result = self._mock_and_run(
+            sections=[
+                {"type": "title_page", "heading": "Title", "start_marker": "The Autocracy Bandwagon"},
+                {"type": "abstract", "heading": "Abstract", "start_marker": "Abstract This paper examines how democratic politicians survive authoritarian reversals"},
+                {"type": "body", "heading": "During", "start_marker": "During democratic breakdowns, democratic politicians occupy"},
+                {"type": "references", "heading": "References", "start_marker": "References Acemoglu, Daron and James A Robinson"},
+            ],
+            abstract_start_marker="This paper examines how democratic politicians survive authoritarian reversals",
+            abstract_end_marker="During democratic breakdowns, democratic politicians",
+        )
+        swc = result["section_word_counts"]
+        # The flexible pattern should match despite joined words
+        assert swc["abstract"] > 0 and swc["abstract"] < 200
+        assert swc["body"] > 0
+
+
+class TestApplyLLMAnalysisValidation:
+    """Test that apply_llm_analysis doesn't override good heuristic results with bad LLM results."""
+
+    def _make_metadata(self):
+        return ManuscriptMetadata(
+            filename="test.pdf",
+            file_type="pdf",
+            word_count=10000,
+            section_word_counts=SectionWordCounts(
+                title_page=100, abstract=150, body=5000,
+                references=2000, footnotes=0, appendix=500,
+                total=7750,
+            ),
+            has_abstract=True,
+            abstract_word_count=150,
+            has_references=True,
+        )
+
+    def test_good_llm_results_override_heuristic(self):
+        metadata = self._make_metadata()
+        analysis = {
+            "section_word_counts": {
+                "title_page": 80, "abstract": 160, "body": 5200,
+                "references": 1800, "footnotes": 0, "appendix": 600,
+            },
+            "has_abstract": True,
+            "abstract_word_count": 160,
+            "has_references": True,
+        }
+        result = apply_llm_analysis(metadata, analysis)
+        assert result.section_word_counts.body == 5200  # LLM value used
+
+    def test_bad_llm_no_body_keeps_heuristic(self):
+        """LLM says body=0 (boundary failed), heuristic should be kept."""
+        metadata = self._make_metadata()
+        analysis = {
+            "section_word_counts": {
+                "title_page": 100, "abstract": 7000, "body": 0,
+                "references": 0, "footnotes": 0, "appendix": 0,
+            },
+            "has_abstract": True,
+            "abstract_word_count": 7000,
+            "has_references": True,
+        }
+        result = apply_llm_analysis(metadata, analysis)
+        # Heuristic body=5000 should be kept, not overridden with 0
+        assert result.section_word_counts.body == 5000
+
+    def test_bad_llm_huge_abstract_keeps_heuristic(self):
+        """LLM says abstract=5000 (body boundary missed), heuristic should be kept."""
+        metadata = self._make_metadata()
+        analysis = {
+            "section_word_counts": {
+                "title_page": 100, "abstract": 5000, "body": 2000,
+                "references": 800, "footnotes": 0, "appendix": 0,
+            },
+            "has_abstract": True,
+            "abstract_word_count": 5000,
+            "has_references": True,
+        }
+        result = apply_llm_analysis(metadata, analysis)
+        # Heuristic abstract=150 is plausible, LLM abstract=5000 is not
+        assert result.section_word_counts.abstract == 150
